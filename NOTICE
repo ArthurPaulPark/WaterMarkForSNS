@@ -28,3 +28,17 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+────────────────────────────────────────────────────────────────────────
+face-api.js — 얼굴 탐지
+  site/vendor/ 아래 파일들은 @vladmandic/face-api 1.7.15 에서 가져왔다.
+  https://github.com/vladmandic/face-api  (MIT)
+  원본: face-api.js by Vincent Mühler  https://github.com/justadudewhohacks/face-api.js  (MIT)
+  모델 가중치도 같은 저장소·같은 라이선스다.
+
+  버전을 고정하고 해시를 남긴다. 조용히 바뀌면 알아챌 수 있어야 한다.
+  14f0e9813f6d9f14a9cdafb6543a74835ebb13085090e2942310a7a737f55d9a  site/vendor/face-api.esm.js
+  9a1a5dd19fd814fd5095c3cb58f8e0d3193b8c5b9a6715b30a69d559aea31ad4  site/vendor/models/face_landmark_68_tiny_model-weights_manifest.json
+  b98e9f2f7da76f8a6dda9741a36ed485b224b889d552de2b2c1bb16217f67bfc  site/vendor/models/face_landmark_68_tiny_model.bin
+  5d1af4849ac48d5b985f4a9b16010c512353ddd6fcc63d50fd0bc9e9e64296e5  site/vendor/models/tiny_face_detector_model-weights_manifest.json
+  b7503ce7df31039b1c43316a9b865cab6a70dd748cc602d3fa28b551503c3871  site/vendor/models/tiny_face_detector_model.bin

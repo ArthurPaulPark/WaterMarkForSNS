@@ -6,6 +6,7 @@ import json
 import math
 import os
 import re
+import secrets
 import time
 import zlib
 import warnings
@@ -73,6 +74,26 @@ CROP_GAINS = ((1.0, 0),) + tuple(
 )
 KEY_PATH = Path(os.environ.get("WATERMARK_KEY", Path.home() / ".watermark" / "key.pem"))
 JPEG_Q = 95
+
+# ── 얼굴 가리기 ────────────────────────────────────────────────────
+# 되돌릴 수 없게 만드는 것은 알고리즘의 복잡성이 아니라 "남기는 정보량"이다.
+# 픽셀화는 결정론적 선형 연산이라 블록 평균이 곧 알려진 측정값이 되고,
+# 얼굴 초해상도 모델은 그 측정값에 맞는 얼굴을 찾아낸다. 블록이 많을수록 잘 맞는다.
+# 그래서 기본은 단색이다 — 출력이 양자화된 색 세 개를 통해서만 원본에 의존하므로
+# 복원할 것이 남지 않는다. 휴리스틱이 아니라 정보이론이다.
+MASK_SOLID = "solid"      # 기본
+MASK_MOSAIC = "mosaic"    # 모자이크 모양을 원할 때. 강하지만 보장은 아니다
+
+SOLID_LEVELS = 16         # 채우는 색의 양자화 단계
+SOLID_NOISE = 6           # 평평한 색면이 JPEG 에서 띠를 만들지 않게 얹는 잡음
+MOSAIC_BLOCKS = 4         # 얼굴 폭을 넷으로. 8 로 나누면 64표본이 남아 복원에 충분하다
+MOSAIC_LEVELS = 16
+MOSAIC_JITTER = 12        # 양자화 폭과 맞먹는 난수. 블록 평균 = 원본 평균이라는 전제를 깬다
+
+GROW_POLY = 1.08          # 윤곽 폴리곤은 조금만 넓힌다
+GROW_BOX = 1.25           # 랜드마크가 없어 타원을 쓸 때
+GROW_MANUAL = 1.0         # 사용자가 직접 그린 박스는 그대로. 의도를 넓히지 않는다
+# 이 값들은 site/face.js 에도 같은 값으로 있다. 한쪽만 고치지 말 것.
 
 # ── 문장 레이어 ────────────────────────────────────────────────────────────
 # 작성자 태그(48비트)에는 문장이 안 들어간다. 한글 한 문장이면 700비트가 넘는다.
@@ -262,6 +283,91 @@ def _fit(img: np.ndarray, max_w: int | None, max_h: int | None) -> np.ndarray:
         img, (max(1, round(w * scale)), max(1, round(h * scale))),
         interpolation=cv2.INTER_AREA,
     )
+
+
+def _mask_region(f: dict, w: int, h: int):
+    """가릴 영역의 불리언 마스크와 그 경계 상자. 없으면 (None, None)."""
+    grow = float(f.get("grow", 1.0))
+    canvas = np.zeros((h, w), np.uint8)
+    poly = f.get("poly")
+    if poly:
+        pts = np.asarray(poly, np.float64)
+        if pts.ndim != 2 or pts.shape[1] != 2 or len(pts) < 3:
+            return None, None
+        centre = pts.mean(0)
+        pts = (centre + (pts - centre) * grow) * [w, h]
+        hull = cv2.convexHull(np.rint(pts).astype(np.int32))
+        cv2.fillConvexPoly(canvas, hull, 1)
+    else:
+        cx = (float(f["x"]) + float(f["w"]) / 2) * w
+        cy = (float(f["y"]) + float(f["h"]) / 2) * h
+        ax = float(f["w"]) * w * grow / 2
+        ay = float(f["h"]) * h * grow / 2
+        if ax < 0.5 or ay < 0.5:
+            return None, None
+        cv2.ellipse(canvas, (int(round(cx)), int(round(cy))),
+                    (int(round(ax)), int(round(ay))), 0, 0, 360, 1, -1)
+    ys, xs = np.nonzero(canvas)
+    if len(xs) == 0:
+        return None, None
+    return canvas.astype(bool), (int(xs.min()), int(ys.min()),
+                                 int(xs.max()) + 1, int(ys.max()) + 1)
+
+
+def _fill_solid(patch: np.ndarray, inside: np.ndarray, rng) -> np.ndarray:
+    """영역을 그 영역의 중앙값 색으로 채운다.
+
+    평균이 아니라 중앙값을 쓴다 — 배경이 조금 섞여도 색이 끌려가지 않는다.
+    출력은 양자화된 색 세 개를 통해서만 원본에 의존한다.
+    """
+    med = np.median(patch[inside].astype(np.float64), axis=0)
+    step = 256.0 / SOLID_LEVELS
+    base = np.clip(np.floor(med / step) * step + step / 2, 0, 255)
+    noise = rng.integers(-SOLID_NOISE, SOLID_NOISE + 1, patch.shape)
+    return np.clip(base + noise, 0, 255).astype(np.uint8)
+
+
+def _fill_mosaic(patch: np.ndarray, rng) -> np.ndarray:
+    """굵은 블록으로 픽셀화하고 블록마다 난수를 더한다."""
+    ph, pw = patch.shape[:2]
+    b = max(8, int(round(pw / MOSAIC_BLOCKS)))
+    sw, sh = max(1, -(-pw // b)), max(1, -(-ph // b))
+    small = cv2.resize(patch, (sw, sh), interpolation=cv2.INTER_AREA).astype(np.float64)
+    step = 256.0 / MOSAIC_LEVELS
+    small = np.floor(small / step) * step + step / 2
+    small += rng.integers(-MOSAIC_JITTER, MOSAIC_JITTER + 1, small.shape)
+    small = np.clip(small, 0, 255).astype(np.uint8)
+    return cv2.resize(small, (pw, ph), interpolation=cv2.INTER_NEAREST)
+
+
+def mask_faces(img: np.ndarray, faces: list[dict], rng=None) -> np.ndarray:
+    """얼굴 영역을 되돌릴 수 없게 지운다. img(BGR)를 제자리에서 고치고 돌려준다.
+
+    faces 의 좌표는 0~1 정규화다. 640px 축소본에서 찾은 것을 여기서 칠할 수 있고,
+    자바스크립트 쪽과 같은 숫자를 주고받는다.
+
+    난수는 저장하지 않는다. 같은 사진을 두 번 처리하면 다른 결과가 나온다.
+    """
+    if not faces:
+        return img
+    h, w = img.shape[:2]
+    if rng is None:
+        rng = np.random.default_rng(secrets.randbits(128))
+    for f in faces:
+        inside, box = _mask_region(f, w, h)
+        if inside is None:
+            continue
+        x0, y0, x1, y1 = box
+        patch = img[y0:y1, x0:x1]
+        sub = inside[y0:y1, x0:x1]
+        if not sub.any():
+            continue
+        if f.get("mode", MASK_SOLID) == MASK_MOSAIC:
+            filled = _fill_mosaic(patch, rng)
+        else:
+            filled = _fill_solid(patch, sub, rng)
+        patch[sub] = filled[sub]
+    return img
 
 
 def _canon(claim: dict) -> bytes:

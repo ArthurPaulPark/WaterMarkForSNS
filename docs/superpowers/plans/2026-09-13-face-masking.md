@@ -37,6 +37,7 @@
 - Create: `site/vendor/models/face_landmark_68_tiny_model.bin`
 - Create: `site/vendor/README.md`
 - Modify: `NOTICE`
+- Temporary (deleted in Step 5): `site/_csp-check.html`, `site/_csp-check.js`
 
 - [ ] **Step 1: 파일을 받아 반입한다**
 
@@ -99,12 +100,21 @@ CSP 도 `script-src 'self'` 라 애초에 막힌다.
 
 - [ ] **Step 3: 진짜 CSP 아래서 도는지 확인하는 임시 페이지**
 
-`site/_csp-check.html` 을 만든다. **검증이 끝나면 지운다 — 저장소에 남기지 않는다.**
+`site/_csp-check.html` 과 `site/_csp-check.js` 를 만든다. **검증이 끝나면 둘 다 지운다 — 저장소에 남기지 않는다.**
+
+검증 로직을 **별도 파일로 뺀다.** `script-src 'self'` 는 인라인 스크립트를 종류 불문
+전부 막으므로(module 이어도 예외 없음), 인라인으로 두면 라이브러리를 시험하기도 전에
+페이지가 죽어 아무 신호도 못 얻는다. 실제 사이트도 항상 외부 스크립트를 쓴다.
 
 ```html
 <!doctype html><meta charset="utf-8"><title>CSP check</title>
 <pre id="out">시작…</pre>
-<script type="module">
+<script type="module" src="./_csp-check.js"></script>
+```
+
+`site/_csp-check.js`:
+
+```js
 const out = document.getElementById('out');
 const log = (s) => { out.textContent += '\n' + s; };
 window.onerror = (e) => log('❌ onerror: ' + e);
@@ -128,7 +138,6 @@ try {
   log(`✅ 추론 완료 — ${r.length}개, ${Math.round(performance.now() - t0)}ms`);
   log('워커 사용 여부는 개발자도구 Network 의 Type=script 항목으로 확인');
 } catch (e) { log('❌ ' + (e && e.stack || e)); }
-</script>
 ```
 
 - [ ] **Step 4: 실제 CSP 헤더를 붙여 띄우고 확인**
@@ -165,7 +174,7 @@ PY
 - [ ] **Step 5: 임시 파일을 지우고 커밋**
 
 ```bash
-rm site/_csp-check.html
+rm site/_csp-check.html site/_csp-check.js
 git add site/vendor NOTICE
 git commit -m "얼굴 탐지 라이브러리 반입 — CSP 를 건드리지 않고 도는 것을 확인했다"
 ```

@@ -43,6 +43,22 @@ export function falsePositive(matched, total, trials) {
 
 // ── 키 (WebCrypto Ed25519) ─────────────────────────────────────────
 const KEY_DB = 'watermark', KEY_STORE = 'keys';
+// 연결을 하나만 열어 재사용한다. 호출마다 새로 열고 닫지 않으면 연결이 쌓이고,
+// 그 열린 연결들이 다른 탭의 업그레이드를 막아 onblocked 를 일으킨다
+// (탭 두 개를 여는 것은 정상적인 사용인데 도장 만들기가 멈추는 원인이었다).
+let dbPromise = null;
+function db() {
+  if (!dbPromise) {
+    dbPromise = idb().then((d) => {
+      // 다른 탭이 버전을 올리려 하면 붙잡고 있지 말고 비켜준다.
+      d.onversionchange = () => { d.close(); dbPromise = null; };
+      d.onclose = () => { dbPromise = null; };
+      return d;
+    }).catch((e) => { dbPromise = null; throw e; });
+  }
+  return dbPromise;
+}
+
 // indexedDB.open 은 성공도 실패도 오지 않는 상태가 있다 — 다른 탭이 붙잡고 있으면
 // onblocked 만 오고 끝이다. 그대로 두면 await 가 영원히 매달려, 화면은 멈춘 채
 // 아무 오류도 뜨지 않는다. 기한을 두고 onblocked 도 명시적으로 실패로 처리한다.
@@ -63,23 +79,23 @@ function idb(timeout = 5000) {
   });
 }
 async function idbGet(k) {
-  const db = await idb();
+  const d = await db();
   return new Promise((res, rej) => {
-    const t = db.transaction(KEY_STORE).objectStore(KEY_STORE).get(k);
+    const t = d.transaction(KEY_STORE).objectStore(KEY_STORE).get(k);
     t.onsuccess = () => res(t.result); t.onerror = () => rej(t.error);
   });
 }
 async function idbPut(k, v) {
-  const db = await idb();
+  const d = await db();
   return new Promise((res, rej) => {
-    const t = db.transaction(KEY_STORE, 'readwrite').objectStore(KEY_STORE).put(v, k);
+    const t = d.transaction(KEY_STORE, 'readwrite').objectStore(KEY_STORE).put(v, k);
     t.onsuccess = () => res(); t.onerror = () => rej(t.error);
   });
 }
 async function idbDel(k) {
-  const db = await idb();
+  const d = await db();
   return new Promise((res, rej) => {
-    const t = db.transaction(KEY_STORE, 'readwrite').objectStore(KEY_STORE).delete(k);
+    const t = d.transaction(KEY_STORE, 'readwrite').objectStore(KEY_STORE).delete(k);
     t.onsuccess = () => res(); t.onerror = () => rej(t.error);
   });
 }
@@ -92,9 +108,8 @@ export async function capabilities() {
   if (!self.crypto?.subtle) { out.err = 'crypto.subtle 없음 (HTTPS 가 아닐 수 있습니다)'; return out; }
   try { await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']); out.ed25519 = true; }
   catch (e) { out.ed25519Err = e.name || String(e); }
-  try {
-    const db = await idb(); db.close?.(); out.idb = true;
-  } catch (e) { out.idbErr = e?.message || e?.name || String(e); }
+  try { await db(); out.idb = true; }
+  catch (e) { out.idbErr = e?.message || e?.name || String(e); }
   return out;
 }
 

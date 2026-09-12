@@ -43,12 +43,23 @@ export function falsePositive(matched, total, trials) {
 
 // ── 키 (WebCrypto Ed25519) ─────────────────────────────────────────
 const KEY_DB = 'watermark', KEY_STORE = 'keys';
-function idb() {
+// indexedDB.open 은 성공도 실패도 오지 않는 상태가 있다 — 다른 탭이 붙잡고 있으면
+// onblocked 만 오고 끝이다. 그대로 두면 await 가 영원히 매달려, 화면은 멈춘 채
+// 아무 오류도 뜨지 않는다. 기한을 두고 onblocked 도 명시적으로 실패로 처리한다.
+function idb(timeout = 5000) {
   return new Promise((res, rej) => {
-    const r = indexedDB.open(KEY_DB, 1);
+    let done = false;
+    const finish = (fn, v) => { if (!done) { done = true; clearTimeout(t); fn(v); } };
+    const t = setTimeout(
+      () => finish(rej, new Error('브라우저 저장소가 응답하지 않습니다 (다른 탭에서 열려 있을 수 있습니다)')),
+      timeout);
+    let r;
+    try { r = indexedDB.open(KEY_DB, 1); }
+    catch (e) { return finish(rej, e); }
     r.onupgradeneeded = () => r.result.createObjectStore(KEY_STORE);
-    r.onsuccess = () => res(r.result);
-    r.onerror = () => rej(r.error);
+    r.onsuccess = () => finish(res, r.result);
+    r.onerror = () => finish(rej, r.error || new Error('브라우저 저장소를 열 수 없습니다'));
+    r.onblocked = () => finish(rej, new Error('다른 탭에서 이 사이트가 열려 있습니다. 그 탭을 닫고 새로고침하세요'));
   });
 }
 async function idbGet(k) {
@@ -83,7 +94,7 @@ export async function capabilities() {
   catch (e) { out.ed25519Err = e.name || String(e); }
   try {
     const db = await idb(); db.close?.(); out.idb = true;
-  } catch (e) { out.idbErr = e?.name || String(e); }
+  } catch (e) { out.idbErr = e?.message || e?.name || String(e); }
   return out;
 }
 
@@ -94,9 +105,9 @@ export async function createKey() {
   if (!cap.ed25519) throw new Error(
     '이 브라우저는 Ed25519 서명을 지원하지 않습니다 — Chrome 137+, Safari 17+, Firefox 129+ 가 필요합니다'
     + (cap.ed25519Err ? ` (${cap.ed25519Err})` : ''));
-  if (!cap.idb) throw new Error(
-    '이 브라우저에 도장을 저장할 수 없습니다. 시크릿/프라이빗 모드이거나 사이트 데이터가 차단된 상태일 수 있습니다'
-    + (cap.idbErr ? ` (${cap.idbErr})` : ''));
+  // 원인이 서로 다르다 — 다른 탭이 붙잡은 것과 시크릿 모드는 해결 방법이 다르다.
+  if (!cap.idb) throw new Error('도장을 저장할 수 없습니다 — ' + (cap.idbErr
+    || '시크릿/프라이빗 모드이거나 사이트 데이터가 차단된 상태일 수 있습니다'));
   if (await idbGet('priv')) throw new Error('이미 도장이 있습니다');
   const kp = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
   const raw = new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey));

@@ -42,6 +42,18 @@ async function showDiag() {
 }
 
 async function refresh() {
+  try { await refreshInner(); }
+  catch (e) {
+    // 초기화가 조용히 죽으면 화면은 '확인 중…' 인 채 멈추고 버튼도 안 보인다.
+    // 무엇이 막혔는지 반드시 말해준다.
+    $('#kdot').style.background = 'var(--bad)';
+    $('#kmsg').textContent = '시작하지 못했습니다 — ' + (e?.message || e);
+    show($('#setup'), false);
+    try { await showDiag(); } catch {}
+  }
+}
+
+async function refreshInner() {
   ED = await A.ed25519Supported();
   show($('#unsupported'), !ED);
   KEY = ED ? await A.loadKey() : null;
@@ -93,9 +105,13 @@ dropzone($('#sdrop'), $('#sfile'), async (f) => { try { sCar = JSON.parse(await 
 // ── 도장 만들기 ─────────────────────────────────────────────────────
 $('#setupGo').onclick = async () => {
   err($('#setupErr'), '');
-  try { await A.createKey(); await refresh(); show($('#setup'), false);
-        $('#kmsg').textContent = '도장을 만들었습니다 — 이제 사진을 보호할 수 있습니다'; }
-  catch (e) { err($('#setupErr'), e.message); }
+  const b = $('#setupGo');
+  b.disabled = true; b.textContent = '만드는 중…';   // 멈춘 건지 알 수 있게
+  try {
+    await A.createKey(); await refresh(); show($('#setup'), false);
+    $('#kmsg').textContent = '도장을 만들었습니다 — 이제 사진을 보호할 수 있습니다';
+  } catch (e) { err($('#setupErr'), e?.message || String(e)); }
+  b.disabled = false; b.textContent = '도장 만들기';
 };
 $('#setupSkip').onclick = () => { $('#pkeyless').checked = true; show($('#setup'), false); sync(); };
 

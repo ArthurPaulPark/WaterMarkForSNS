@@ -31,6 +31,16 @@ document.querySelectorAll('.tab').forEach((t) => t.onclick = () => {
   ['protect', 'verify', 'key'].forEach((id) => show($('#' + id), id === t.dataset.t));
 });
 
+async function showDiag() {
+  const c = await A.capabilities();
+  const row = (k, v, ok) => `<div class="kv"><span>${k}</span><span class="${ok ? '' : 'pill bad'}">${v}</span></div>`;
+  $('#diag').innerHTML =
+    row('보안 연결 (HTTPS)', c.secure ? '예' : '아니오', c.secure) +
+    row('Ed25519 서명', c.ed25519 ? '지원' : '미지원' + (c.ed25519Err ? ` (${c.ed25519Err})` : ''), c.ed25519) +
+    row('브라우저 저장소', c.idb ? '사용 가능' : '불가' + (c.idbErr ? ` (${c.idbErr})` : ''), c.idb) +
+    `<div class="kv"><span>브라우저</span><span style="font-size:11px">${c.ua}</span></div>`;
+}
+
 async function refresh() {
   ED = await A.ed25519Supported();
   show($('#unsupported'), !ED);
@@ -44,6 +54,7 @@ async function refresh() {
   $('#platform').innerHTML = Object.entries(A.PLATFORMS)
     .map(([k, v]) => `<option value="${k}">${v.label} — ${v.note}</option>`).join('');
   sync();
+  showDiag();
 }
 const msgBytes = () => new TextEncoder().encode($('#pmsg').value.trim()).length;
 function sync() {

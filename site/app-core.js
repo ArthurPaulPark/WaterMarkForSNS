@@ -73,13 +73,30 @@ async function idbDel(k) {
   });
 }
 
-export const ed25519Supported = async () => {
-  try { await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']); return true; }
-  catch { return false; }
-};
+export const ed25519Supported = async () => (await capabilities()).ed25519;
+
+/** 이 브라우저가 무엇을 할 수 있는지. 안 될 때 원인을 정확히 알려주기 위한 것. */
+export async function capabilities() {
+  const out = { secure: self.isSecureContext, ed25519: false, idb: false, ua: navigator.userAgent };
+  if (!self.crypto?.subtle) { out.err = 'crypto.subtle 없음 (HTTPS 가 아닐 수 있습니다)'; return out; }
+  try { await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']); out.ed25519 = true; }
+  catch (e) { out.ed25519Err = e.name || String(e); }
+  try {
+    const db = await idb(); db.close?.(); out.idb = true;
+  } catch (e) { out.idbErr = e?.name || String(e); }
+  return out;
+}
 
 /** 새 신원을 만든다. 개인키는 이 브라우저에만 저장된다. */
 export async function createKey() {
+  const cap = await capabilities();
+  if (!cap.secure) throw new Error('보안 연결(HTTPS)에서만 도장을 만들 수 있습니다');
+  if (!cap.ed25519) throw new Error(
+    '이 브라우저는 Ed25519 서명을 지원하지 않습니다 — Chrome 137+, Safari 17+, Firefox 129+ 가 필요합니다'
+    + (cap.ed25519Err ? ` (${cap.ed25519Err})` : ''));
+  if (!cap.idb) throw new Error(
+    '이 브라우저에 도장을 저장할 수 없습니다. 시크릿/프라이빗 모드이거나 사이트 데이터가 차단된 상태일 수 있습니다'
+    + (cap.idbErr ? ` (${cap.idbErr})` : ''));
   if (await idbGet('priv')) throw new Error('이미 도장이 있습니다');
   const kp = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
   const raw = new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey));

@@ -71,6 +71,13 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 - A targeted attacker who knows your public key and edits the code can erase it.
 - Does not prove who was *first*. Signature timestamps are self-reported.
 
+### Two ways to run it
+
+- **Web app** — open the deployed site. Everything runs in the browser tab; nothing is
+  uploaded. Verified interoperable with the desktop version: a photo watermarked in the
+  browser is read by the Python app (48/48 bits) and its Ed25519 signature verifies there.
+- **Desktop** — clone and run locally (below).
+
 **The UI and the detailed documentation below are in Korean.**
 
 MIT licensed. `dwtdctsvd.py` derives from
@@ -441,8 +448,38 @@ Host/Origin 검사로 막았다.
 - `static/index.html` — UI
 - `test_watermark.py` — 자체 점검. `.venv/bin/python test_watermark.py`
 - `실행.command` — 파인더에서 더블클릭하는 실행기. 첫 실행 때 준비까지 알아서 한다.
-- `site/` — 소개 웹페이지 (정적). Vercel 등에 그대로 올릴 수 있다. 앱 자체는 서버에
-  올리지 않는다 — 올리는 순간 "사진이 컴퓨터를 벗어나지 않는다"가 깨지기 때문이다.
+- `site/` — **브라우저에서 도는 웹 앱** (정적 파일). Vercel 등에 그대로 올린다.
+  서버로 사진을 보내지 않는다 — 계산이 전부 탭 안에서 일어나므로 "사진이 내 기기를
+  벗어나지 않는다"가 그대로 유지된다.
+  - `wm-core.js` 수학(DWT·DCT·최대특이삼중항) · `wm.js` 워터마크·문장·지각해시
+  - `app-core.js` 키·서명·보호/검증 · `app.js` 화면 · `index.html`
+
+## 웹 앱과 데스크톱 앱의 호환
+
+같은 형식을 쓴다. 브라우저에서 심은 워터마크를 파이썬 앱이 읽고, 그 반대도 된다.
+이식이 정확한지 기계적으로 대조했다.
+
+| 항목 | 결과 |
+|---|---|
+| DCT 행렬 · 4x4 DCT · Haar DWT 2단계 | 오차 1e-13 |
+| 최대 특이삼중항 | 오차 3e-13 |
+| 작성자 태그 · 칸 선택 | 완전 일치 |
+| 태그 삽입 결과 픽셀 | 98,304개 전부 동일 |
+| CRC32 · 문장 프레임 · 용량 계산 | 완전 일치 |
+| 지각 해시 | 같은 파일에서 완전 일치 (구현 차이 최대 2비트, 허용 10) |
+| **브라우저가 심음 → 파이썬이 읽음** | **태그 48/48 · 문장 정확 · 선언 확인** |
+| **브라우저 서명 → 파이썬이 검증** | **유효** |
+
+이식 과정에서 세 가지를 맞춰야 했다.
+
+- **칸 선택을 해시 기반으로 바꿨다.** 원래 `numpy.default_rng().choice()` 를 썼는데
+  난수 알고리즘을 다른 언어에서 똑같이 재현하는 것은 취약하다. 지금은
+  `SHA256(seed || 칸번호)` 순위로만 정한다.
+- **정규 JSON 을 파이썬에 맞췄다.** 파이썬 `json.dumps` 는 비ASCII 를 `\uXXXX` 로
+  escape 한다. JS 는 원문을 내보내므로 그대로 두면 서명 대상 바이트가 달라져
+  서명 검증이 실패했다.
+- **지각 해시의 축소를 OpenCV 와 맞췄다.** 면적 가중 평균에 정수 반올림까지 해야 한다
+  (빼먹으면 평균 8비트 어긋났다).
 
 ## 라이선스
 

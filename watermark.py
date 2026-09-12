@@ -165,10 +165,19 @@ def author_cells(pub_hex_str: str) -> np.ndarray:
 
     공개키에서 유도하므로 누구나 검증할 수 있다. 뒤집어 말하면 내 공개키를 아는 상대가
     프로그램을 고치면 내 칸만 노릴 수 있다 — 표적 공격까지 막지는 못한다.
+
+    난수 라이브러리에 기대지 않고 해시만으로 정한다. 언어가 달라도(브라우저 구현 등)
+    같은 칸이 나와야 서로 읽을 수 있기 때문이다.
+      seed        = SHA256(공개키 || "cells")
+      칸 i 의 순위 = SHA256(seed || i를 2바이트 빅엔디언) 의 앞 8바이트
+      순위가 작은 48칸을 골라 오름차순으로 돌려준다.
     """
-    seed = int.from_bytes(
-        hashlib.sha256(bytes.fromhex(pub_hex_str) + b"cells").digest()[:8], "big")
-    return np.sort(np.random.default_rng(seed).choice(TILE[0] * TILE[1], NBITS, replace=False))
+    seed = hashlib.sha256(bytes.fromhex(pub_hex_str) + b"cells").digest()
+    ranked = sorted(
+        range(TILE[0] * TILE[1]),
+        key=lambda i: hashlib.sha256(seed + i.to_bytes(2, "big")).digest()[:8],
+    )
+    return np.array(sorted(ranked[:NBITS]))
 
 
 def _codec(pub: str) -> DwtDctSvd:

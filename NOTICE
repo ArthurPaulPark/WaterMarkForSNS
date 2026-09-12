@@ -1,0 +1,30 @@
+이 프로젝트는 아래 오픈소스를 포함하거나 파생했습니다.
+
+────────────────────────────────────────────────────────────────────────
+invisible-watermark  (https://github.com/ShieldMnt/invisible-watermark)
+
+dwtdctsvd.py 는 이 프로젝트의 dwtDctSvd 구현에서 출발했습니다.
+이식 시점에 원본과 바이트 단위로 동일한 출력을 확인한 뒤, 역 DWT 밴드 순서
+수정·uint8 랩어라운드 수정·주기 격자 배치·희소 칸 선택·벡터화를 더했습니다.
+
+MIT License
+
+Copyright (c) 2021 ShieldMnt
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

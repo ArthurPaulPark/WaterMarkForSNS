@@ -1,0 +1,16 @@
+# 파이썬 가상환경 — 각자 컴퓨터에서 만든다
+.venv/
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# 키와 서명은 절대 저장소에 올리지 않는다
+*.pem
+*.key
+*.sig.json
+
+# 보호 결과물
+*_protected.jpg
+*_protected.png

@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WaterMark — 보이지 않는 워터마크로 내 사진 지키기</title>
+<meta name="description" content="사진에 육안으로 보이지 않는 워터마크를 심고 서명으로 원작자를 증명합니다. 전부 내 컴퓨터에서만 동작하며 사진은 어디로도 전송되지 않습니다.">
+<meta property="og:title" content="WaterMark — 보이지 않는 워터마크">
+<meta property="og:description" content="SNS에 올린 내 사진을 추적하고 원작자를 증명합니다. 완전 로컬 동작.">
+<meta property="og:type" content="website">
+<style>
+  :root{
+    --bg:#ffffff; --panel:#f6f7f9; --line:#e3e6ea; --fg:#12151a; --dim:#5b636e;
+    --accent:#2f6df6; --ok:#1a7f45; --warn:#9a6700; --bad:#c22b2b; --code:#f0f2f5;
+  }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+    --bg:#0e1116; --panel:#161b22; --line:#262d38; --fg:#e6edf3; --dim:#98a1ad;
+    --accent:#6ea0ff; --ok:#3fb950; --warn:#d29922; --bad:#f85149; --code:#11161d;
+  }}
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:16px/1.75 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo",Pretendard,"Malgun Gothic",sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:840px;margin:0 auto;padding:0 22px}
+  code,kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.88em;
+    background:var(--code);padding:.15em .4em;border-radius:5px}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:10px;
+    padding:16px 18px;overflow-x:auto;font-size:13.5px;line-height:1.65}
+  pre code{background:none;padding:0}
+  a{color:var(--accent)}
+  header{padding:72px 0 40px;border-bottom:1px solid var(--line)}
+  h1{font-size:clamp(30px,6vw,44px);line-height:1.2;margin:0 0 14px;letter-spacing:-.02em}
+  .lede{font-size:clamp(16px,2.4vw,19px);color:var(--dim);margin:0 0 30px;max-width:34em}
+  .cta{display:flex;gap:11px;flex-wrap:wrap;align-items:center}
+  .btn{display:inline-block;padding:11px 20px;border-radius:9px;text-decoration:none;
+    font-weight:600;font-size:15px;border:1px solid transparent}
+  .btn.p{background:var(--accent);color:#fff}
+  .btn.s{border-color:var(--line);color:var(--fg)}
+  .tagline{font-size:13.5px;color:var(--dim);margin-top:14px}
+  section{padding:52px 0;border-bottom:1px solid var(--line)}
+  h2{font-size:clamp(21px,3.4vw,26px);margin:0 0 8px;letter-spacing:-.01em}
+  .sub{color:var(--dim);margin:0 0 26px}
+  .grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px}
+  .card h3{margin:0 0 7px;font-size:16px}
+  .card p{margin:0;font-size:14.5px;color:var(--dim);line-height:1.65}
+  table{width:100%;border-collapse:collapse;font-size:14.5px;display:block;overflow-x:auto}
+  th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+  th{font-weight:600;color:var(--dim);font-size:13px}
+  td:first-child{white-space:normal}
+  .ok{color:var(--ok);font-weight:600}
+  .no{color:var(--bad);font-weight:600}
+  .warnbox{background:var(--panel);border:1px solid var(--warn);border-left-width:4px;
+    border-radius:10px;padding:18px 20px;margin:22px 0}
+  .warnbox h3{margin:0 0 8px;font-size:16px;color:var(--warn)}
+  .warnbox p{margin:0;font-size:14.5px;color:var(--dim)}
+  ul{padding-left:1.15em} li{margin:.45em 0;color:var(--dim);font-size:15px}
+  li b{color:var(--fg)}
+  footer{padding:40px 0 64px;color:var(--dim);font-size:13.5px}
+  .steps{counter-reset:s;list-style:none;padding:0}
+  .steps li{counter-increment:s;position:relative;padding-left:38px;margin:16px 0;color:var(--fg)}
+  .steps li::before{content:counter(s);position:absolute;left:0;top:1px;width:25px;height:25px;
+    border-radius:50%;background:var(--accent);color:#fff;font-size:13px;font-weight:700;
+    display:grid;place-items:center}
+  .steps li span{display:block;color:var(--dim);font-size:14px;margin-top:3px}
+</style>
+</head>
+<body>
+
+<header><div class="wrap">
+  <h1>보이지 않는 워터마크로<br>내 사진 지키기</h1>
+  <p class="lede">SNS에 올린 사진이 어디로 퍼졌는지 추적하고, 내가 원작자임을 증명합니다.
+    육안으로는 아무 차이가 없고, <b>사진은 내 컴퓨터를 벗어나지 않습니다.</b></p>
+  <div class="cta">
+    <a class="btn p" href="https://github.com/ArthurPaulPark/WaterMarkForSNS">GitHub에서 받기</a>
+    <a class="btn s" href="#install">설치 방법</a>
+    <a class="btn s" href="#limits">못 하는 것</a>
+  </div>
+  <p class="tagline">macOS · Python 3 · 오픈소스(MIT) · 설치 후 인터넷 불필요</p>
+</div></header>
+
+<section><div class="wrap">
+  <h2>무엇을 하나</h2>
+  <p class="sub">사진에 세 겹의 흔적을 남깁니다.</p>
+  <div class="grid">
+    <div class="card"><h3>작성자 태그</h3>
+      <p>내 공개키를 가리키는 48비트 표식. 재압축·크롭·노이즈 제거를 견디고,
+        남이 그 위에 다시 워터마크를 심어도 살아남습니다.</p></div>
+    <div class="card"><h3>문장 심기</h3>
+      <p>원하는 문장을 사진 안에 넣습니다. 한글 29~111자.
+        정확히 복원됐을 때만 보여줍니다.</p></div>
+    <div class="card"><h3>서명 (사이드카)</h3>
+      <p>Ed25519 서명으로 원작자를 증명합니다. 분쟁이 생겼을 때
+        부인할 수 없는 근거가 됩니다.</p></div>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <h2>실제로 견디는가</h2>
+  <p class="sub">인스타그램 1080px 기준 실측. 48비트 중 몇 비트가 살아남는지.</p>
+  <table>
+    <tr><th>공격</th><th>결과</th><th>공격당한 사진 화질</th></tr>
+    <tr><td>업로드 재압축</td><td class="ok">48/48 검출</td><td>39dB</td></tr>
+    <tr><td>스크린샷 캡처</td><td class="ok">48/48 검출</td><td>38dB</td></tr>
+    <tr><td>저장 후 50% 축소</td><td class="ok">48/48 검출</td><td>39dB</td></tr>
+    <tr><td>정중앙 40%만 남김 (크롭)</td><td class="ok">48/48 검출</td><td>16dB</td></tr>
+    <tr><td>노이즈 제거 (제거 시도)</td><td class="ok">47/48 검출</td><td>37dB</td></tr>
+    <tr><td>밝기·대비 조작</td><td class="ok">48/48 검출</td><td>18dB</td></tr>
+    <tr><td>남이 덮어쓰기</td><td class="ok">41~44/48 검출</td><td>—</td></tr>
+    <tr><td>크롭 + 밝기·대비 동시</td><td class="no">소실</td><td>13dB</td></tr>
+    <tr><td>AI 재생성 (img2img)</td><td class="no">소실</td><td>—</td></tr>
+  </table>
+  <p class="sub" style="margin-top:18px">오른쪽 dB는 <b>공격당한 사진 자체의 화질</b>입니다.
+    워터마크를 지울 만큼 센 공격은 사진도 같이 망가집니다.
+    워터마크를 넣었을 때의 화질 손실은 PSNR 40dB로 육안 식별이 불가능합니다.</p>
+</div></section>
+
+<section><div class="wrap">
+  <h2>사진은 어디로도 가지 않습니다</h2>
+  <p class="sub">서버가 없습니다. 내 컴퓨터 안에서만 돕니다.</p>
+  <ul>
+    <li><b>외부 연결 0건</b> — 사진 처리 내내 소켓을 감시해 확인했습니다.</li>
+    <li><b>127.0.0.1 전용</b> — 같은 네트워크의 다른 기기에서도 접근할 수 없습니다.</li>
+    <li><b>디스크에도 안 남습니다</b> — 사진은 메모리에서만 처리됩니다.</li>
+    <li><b>안 쓰면 꺼집니다</b> — 10분간 사용이 없으면 스스로 종료합니다.</li>
+    <li><b>개인키는 브라우저로도 나가지 않습니다</b> — 서명은 내 컴퓨터에서만 이뤄집니다.</li>
+  </ul>
+  <div class="warnbox">
+    <h3>웹사이트에서 바로 쓸 수는 없나요?</h3>
+    <p>그렇게 만들면 사진을 서버로 보내야 합니다. 이 도구의 존재 이유가 사라지므로
+      일부러 내려받아 쓰는 방식으로 만들었습니다. 이 페이지는 소개용입니다.</p>
+  </div>
+</div></section>
+
+<section id="install"><div class="wrap">
+  <h2>설치</h2>
+  <p class="sub">macOS 기준. 처음 한 번만 1~2분 걸립니다.</p>
+  <ol class="steps">
+    <li>GitHub에서 코드를 내려받습니다
+      <span>초록색 <b>Code</b> 버튼 → <b>Download ZIP</b> → 압축 풀기</span></li>
+    <li>폴더 안의 <code>실행.command</code> 를 더블클릭합니다
+      <span>필요한 부품을 알아서 내려받고 브라우저가 자동으로 열립니다</span></li>
+    <li>첫 화면에서 "내 도장"을 한 번 만듭니다
+      <span>암호를 걸지 여부만 고르면 됩니다. 만든 개인키는 꼭 백업하세요</span></li>
+    <li>사진을 끌어다 놓고 [보호하기]
+      <span>내려받은 이미지를 SNS에 올리고, 사이드카 파일은 따로 보관합니다</span></li>
+  </ol>
+  <p class="sub" style="margin-top:22px">터미널을 쓴다면:</p>
+<pre><code>git clone https://github.com/ArthurPaulPark/WaterMarkForSNS.git
+cd WaterMarkForSNS
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python server.py     # → http://127.0.0.1:8765</code></pre>
+</div></section>
+
+<section id="limits"><div class="wrap">
+  <h2>못 하는 것</h2>
+  <p class="sub">이건 <b>도용 방지</b> 도구가 아니라 <b>도용 추적</b> 도구입니다.</p>
+  <ul>
+    <li><b>훔쳐가는 것을 막지 못합니다.</b> 사후에 "내 것"임을 보이는 도구입니다.</li>
+    <li><b>AI 학습을 막지 못합니다.</b> 국제 표준(IPTC/PLUS)의 학습 거부 표시를 넣지만
+      강제력이 없고, SNS 업로드 때 지워집니다.</li>
+    <li><b>AI 재생성(img2img)을 거치면 사라집니다.</b> 현재 모든 비가시 워터마크의 공통 한계입니다.</li>
+    <li><b>크롭과 색보정이 겹치면</b> 놓칠 수 있습니다.</li>
+    <li><b>표적 공격은 막지 못합니다.</b> 내 공개키를 알고 코드를 고치는 상대는 지울 수 있습니다.</li>
+    <li><b>먼저 만들었다는 것은 증명하지 못합니다.</b> 서명의 시각은 자기 신고입니다.</li>
+  </ul>
+  <p class="sub" style="margin-top:20px">과장하지 않는 것이 이 프로젝트의 원칙입니다.
+    모든 수치는 실측이고, 실패한 시도까지
+    <a href="https://github.com/ArthurPaulPark/WaterMarkForSNS#readme">문서</a>에 남겨두었습니다.</p>
+</div></section>
+
+<footer><div class="wrap">
+  <p><a href="https://github.com/ArthurPaulPark/WaterMarkForSNS">GitHub</a> ·
+     MIT License ·
+     <a href="https://github.com/ShieldMnt/invisible-watermark">invisible-watermark</a>(MIT)의
+     알고리즘에서 출발했습니다.</p>
+</div></footer>
+
+</body>
+</html>

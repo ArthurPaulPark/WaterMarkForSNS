@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WaterMark</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --line:#262d38; --fg:#e6edf3; --dim:#8b949e;
+    --accent:#4c8dff; --ok:#3fb950; --warn:#d29922; --bad:#f85149;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font:14px/1.6 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard",sans-serif}
+  .wrap{max-width:820px;margin:0 auto;padding:32px 20px 80px}
+  header{display:flex;align-items:baseline;gap:12px;margin-bottom:6px}
+  h1{font-size:20px;margin:0;letter-spacing:-.3px}
+  .sub{color:var(--dim);font-size:13px}
+  .keybar{display:flex;align-items:center;gap:10px;margin:18px 0 24px;padding:10px 14px;
+          background:var(--panel);border:1px solid var(--line);border-radius:8px;font-size:12.5px}
+  .dot{width:8px;height:8px;border-radius:50%;flex:none}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+  .tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:24px}
+  .tab{padding:9px 16px;background:none;border:0;color:var(--dim);cursor:pointer;font-size:14px;
+       border-bottom:2px solid transparent;margin-bottom:-1px}
+  .tab.on{color:var(--fg);border-bottom-color:var(--accent)}
+  .drop{border:1.5px dashed var(--line);border-radius:10px;padding:36px 20px;text-align:center;
+        color:var(--dim);cursor:pointer;transition:.15s}
+  .drop:hover,.drop.over{border-color:var(--accent);background:#4c8dff0d;color:var(--fg)}
+  .drop.has{padding:16px;border-style:solid;color:var(--fg)}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:16px}
+  select,input[type=text],input[type=password],textarea{
+    background:#0d1117;border:1px solid var(--line);color:var(--fg);border-radius:7px;
+    padding:8px 11px;font-size:13px;font-family:inherit}
+  textarea{width:100%;resize:vertical;font-family:ui-monospace,monospace;font-size:11.5px}
+  input[type=text]{flex:1;min-width:220px;font-family:ui-monospace,monospace;font-size:12px}
+  button.go{background:var(--accent);border:0;color:#fff;padding:9px 18px;border-radius:7px;
+            cursor:pointer;font-size:13.5px;font-weight:600}
+  button.alt{background:transparent;border:1px solid var(--line);color:var(--fg)}
+  button:disabled{opacity:.45;cursor:default}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px;margin-top:20px}
+  .card h3{margin:0 0 12px;font-size:14px;font-weight:600}
+  img.prev{max-width:100%;border-radius:8px;display:block;margin-bottom:14px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  td{padding:7px 4px;border-bottom:1px solid var(--line)}
+  td:last-child{text-align:right;font-family:ui-monospace,monospace;font-size:12px}
+  tr:last-child td{border-bottom:0}
+  .pill{display:inline-block;padding:1px 8px;border-radius:20px;font-size:11px;font-weight:600}
+  .pill.ok{background:#3fb95022;color:var(--ok)} .pill.bad{background:#f8514922;color:var(--bad)}
+  .pill.warn{background:#d2992222;color:var(--warn)}
+  .note{color:var(--dim);font-size:12.5px;margin-top:10px}
+  .err{color:var(--bad);font-size:13px;margin-top:12px}
+  .hide{display:none}
+  .kv{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--line)}
+  .backup{border:1px solid var(--warn);border-radius:10px;padding:16px;margin-top:18px;background:#d2992210}
+  .backup h4{margin:0 0 4px;font-size:14px;color:var(--warn)}
+  .step{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--line)}
+  .step:last-of-type{border-bottom:0}
+  .num{flex:none;width:22px;height:22px;border-radius:50%;background:var(--warn);color:#0e1116;
+       font-weight:700;font-size:12px;display:grid;place-items:center}
+  .step div{flex:1;min-width:0}
+  .step .sub{display:block;font-size:12px;color:var(--dim);margin-top:1px}
+  .why{margin:10px 0 0;padding-top:11px;border-top:1px solid var(--line);font-size:12.5px;color:var(--dim)}
+  .kv:last-child{border-bottom:0} .kv span:first-child{color:var(--dim)}
+  .kv span:last-child{font-family:ui-monospace,monospace;font-size:12px;text-align:right;word-break:break-all}
+</style>
+</head>
+<body><div class="wrap">
+
+<header><h1>WaterMark</h1><span class="sub">보이지 않는 워터마크 · 서명 · 이 컴퓨터에서만 동작</span></header>
+<p class="note" style="margin:4px 0 0">이 창을 닫거나 오래 방치하면 서버가 스스로 꺼집니다. 떠 있는 시간이 곧 노출 시간이라서요.</p>
+
+<div class="keybar">
+  <div class="dot" id="kdot"></div><div id="kmsg">확인 중…</div>
+  <div style="flex:1"></div><code id="kpub" class="sub"></code>
+</div>
+
+<div class="tabs">
+  <button class="tab on" data-t="protect">보호하기</button>
+  <button class="tab" data-t="verify">검증하기</button>
+  <button class="tab" data-t="key">내 키</button>
+</div>
+
+<!-- ─────────── 보호 ─────────── -->
+<section id="protect">
+  <div class="card hide" id="setup" style="border-color:var(--accent)">
+    <h3>시작하기 전에 — 내 도장을 하나 만듭니다</h3>
+    <p class="note" style="margin-top:0">사진에 넣을 서명의 근거가 되는 파일입니다.
+      <b>한 번만 만들면 그다음부터는 신경 쓸 일이 없습니다.</b></p>
+    <div class="kv"><span>개인키 <b>= 도장</b></span>
+      <span>이 컴퓨터에만 저장됩니다. 남에게 주지 마세요.</span></div>
+    <div class="kv"><span>공개키 <b>= 도장 자국</b></span>
+      <span>프로필 등에 공개합니다. 남들이 이걸로 내 사진임을 확인합니다.</span></div>
+    <div class="row" id="setupPick">
+      <button class="go" id="setupPass">암호 걸고 만들기 <span style="opacity:.75">(권장)</span></button>
+      <button class="go alt" id="setupPlain">암호 없이 만들기</button>
+      <button class="go alt" id="setupSkip">필요 없어요 — 문장만 넣을래요</button>
+    </div>
+    <div class="hide" id="setupForm">
+      <p class="note">암호를 잊으면 이 도장을 영영 못 씁니다. 확실히 기억할 것으로 정하세요.</p>
+      <div class="row">
+        <input type="password" id="pw1" placeholder="암호">
+        <input type="password" id="pw2" placeholder="암호 다시 입력">
+        <button class="go" id="setupGo" disabled>만들기</button>
+        <button class="go alt" id="setupBack">뒤로</button>
+      </div>
+      <div class="sub" id="pwmsg" style="margin-top:6px"></div>
+    </div>
+    <div class="err hide" id="setupErr"></div>
+  </div>
+  <div class="drop" id="pdrop">사진을 끌어다 놓거나 클릭해서 선택<input type="file" accept="image/*" hidden id="pfile"></div>
+  <div class="row" style="align-items:flex-start">
+    <textarea id="pmsg" rows="2" placeholder="사진에 심을 문장 (선택) — 사람 눈에는 안 보입니다"
+              style="font-family:inherit;font-size:13px"></textarea>
+  </div>
+  <div class="row" style="margin-top:6px"><span class="sub" id="pcap">사진을 먼저 선택하면 넣을 수 있는 길이가 나옵니다</span></div>
+  <div class="row" style="margin-top:8px">
+    <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px">
+      <input type="checkbox" id="pkeyless"> 키 없이 문장만 심기
+    </label>
+    <span class="sub" id="pklnote">작성자 증명 없이 문장만 넣습니다</span>
+  </div>
+  <div class="row" style="margin-top:4px">
+    <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px">
+      <input type="checkbox" id="pnoai" checked> AI 학습 거부 선언 넣기
+    </label>
+    <span class="sub">국제 표준(IPTC/PLUS) 표시. 크롤러가 지켜줘야 의미가 있고,
+      SNS 업로드 때는 지워집니다</span>
+  </div>
+  <div class="row">
+    <select id="platform"></select>
+    <input type="password" id="ppass" placeholder="키 암호" class="hide">
+    <button class="go" id="pgo" disabled>보호하기</button>
+    <button class="go alt" id="pbench" disabled>강인성 테스트</button>
+  </div>
+  <div class="err hide" id="perr"></div>
+  <div class="card hide" id="pwarn" style="border-color:var(--warn)"></div>
+  <div class="card hide" id="pres"></div>
+  <div class="card hide" id="bres"></div>
+</section>
+
+<!-- ─────────── 검증 ─────────── -->
+<section id="verify" class="hide">
+  <div class="drop" id="vdrop">검사할 사진을 끌어다 놓거나 클릭<input type="file" accept="image/*" hidden id="vfile"></div>
+  <div class="row"><input type="text" id="vpub" placeholder="작성자의 공개키 (선택 — 비우면 심긴 문장만 읽습니다)"></div>
+  <div class="row">
+    <div class="drop" id="sdrop" style="flex:1;padding:14px;font-size:12.5px">
+      사이드카 .sig.json (선택 · 강증명)<input type="file" accept=".json" hidden id="sfile"></div>
+  </div>
+  <div class="row"><button class="go" id="vgo" disabled>검증</button><span class="sub">크롭·색보정된 사진이면 정렬 탐색에 최대 20초</span></div>
+  <div class="err hide" id="verr"></div>
+  <div class="card hide" id="vres"></div>
+</section>
+
+<!-- ─────────── 키 ─────────── -->
+<section id="key" class="hide">
+  <div class="card">
+    <h3>공개키 <span class="sub" style="font-weight:400">= 내 도장 자국</span></h3>
+    <p class="note" style="margin-top:0">프로필·블로그·깃허브 등에 <b>공개하세요.</b> 남들이 이걸로
+      "이 사진이 정말 이 사람 것인지" 확인합니다. 공개해도 안전합니다 — 이것만으로는
+      내 사진을 흉내낼 수 없습니다.</p>
+    <textarea id="pubbox" rows="2" readonly></textarea>
+    <div class="row"><button class="go alt" id="copy">복사</button></div>
+  </div>
+  <div class="card" id="mkcard">
+    <h3>아직 도장이 없습니다</h3>
+    <p class="note" style="margin-top:0">[보호하기] 탭에서 사진을 올리면 만드는 방법을 안내합니다.</p>
+  </div>
+  <div class="card">
+    <h3>개인키 <span class="sub" style="font-weight:400">= 도장 그 자체</span></h3>
+    <p class="note" style="margin-top:0">
+      <code id="kpath"></code> 에 저장되며 <b>브라우저나 인터넷으로는 절대 나가지 않습니다.</b>
+      이 파일을 가진 사람이 곧 나입니다.</p>
+    <div class="kv"><span>꼭 할 일</span><span>다른 곳에 복사해 두기</span></div>
+    <div class="kv"><span>잃어버리면</span><span>지금까지 심은 워터마크를 증명할 수 없게 됩니다</span></div>
+    <div class="kv"><span>남에게 넘어가면</span><span>그 사람이 내 이름으로 서명할 수 있습니다</span></div>
+  </div>
+</section>
+
+</div>
+<script>
+const $ = s => document.querySelector(s);
+let ST = {}, pImg = null, vImg = null, sCar = null, DEAD = false, SIDECAR_SAVED = false;
+
+// 사이드카를 안 받고 창을 닫으려 하면 잡는다. 덮어쓰기를 당했을 때 원작자를 증명하는
+// 유일한 파일이라, 안내문 한 줄로는 부족하다.
+addEventListener('beforeunload', e => {
+  if (SIDECAR_SAVED || $('#pres').classList.contains('hide')) return;
+  e.preventDefault();
+  e.returnValue = '';
+});
+
+const fmt = b => b > 1048576 ? (b/1048576).toFixed(1)+' MB' : Math.round(b/1024)+' KB';
+const show = (el, on) => el.classList.toggle('hide', !on);
+const err = (el, m) => { el.textContent = m; show(el, !!m); };
+
+function dropzone(zone, input, onPick, label){
+  zone.onclick = () => input.click();
+  zone.ondragover = e => { e.preventDefault(); zone.classList.add('over'); };
+  zone.ondragleave = () => zone.classList.remove('over');
+  zone.ondrop = e => { e.preventDefault(); zone.classList.remove('over');
+                       if (e.dataTransfer.files[0]) take(e.dataTransfer.files[0]); };
+  input.onchange = () => input.files[0] && take(input.files[0]);
+  function take(f){ zone.classList.add('has'); zone.firstChild.textContent = `${f.name} · ${fmt(f.size)}`; onPick(f); }
+}
+
+async function api(path, form){
+  let r;
+  try { r = await fetch(path, { method:'POST', body:form }); }
+  catch { serverGone(); throw new Error('서버가 꺼져 있습니다. 터미널에서 다시 실행해 주세요.'); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const d = j.detail;
+    const e = new Error(typeof d === 'string' ? d : (d && d.msg) || '요청 실패');
+    e.detail = d; e.status = r.status;
+    throw e;
+  }
+  return j;
+}
+
+// ── 자동 종료 ──────────────────────────────────────
+// 서버는 신호가 끊기면 스스로 꺼진다. 탭이 보이고 최근에 조작이 있을 때만 신호를 보낸다.
+// 그래야 탭을 닫거나 열어둔 채 방치했을 때 서버가 살아남지 않는다.
+let lastAct = Date.now(), IDLE = 10*60*1000;
+['pointerdown','keydown'].forEach(e =>
+  addEventListener(e, () => lastAct = Date.now(), { passive:true }));
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) { lastAct = Date.now(); beat(); }
+});
+async function beat(){
+  if (DEAD || document.hidden || Date.now() - lastAct > IDLE) return;
+  try { const r = await fetch('/api/ping'); if (!r.ok) throw 0; } catch { serverGone(); }
+}
+setInterval(beat, 60000);
+
+function serverGone(){
+  if (DEAD) return;
+  DEAD = true;
+  $('#kdot').style.background = 'var(--bad)';
+  $('#kmsg').textContent = '서버가 종료되었습니다 — 터미널에서 다시 실행해 주세요';
+  $('#kpub').textContent = '';
+  syncBtns();
+}
+
+// ── 상태 ──────────────────────────────────────────
+async function refresh(){
+  try { ST = await (await fetch('/api/status')).json(); }
+  catch { return serverGone(); }
+  $('#kpath').textContent = ST.key_path;
+  $('#kdot').style.background = ST.has_key ? 'var(--ok)' : 'var(--warn)';
+  $('#kmsg').textContent = ST.has_key
+    ? (ST.encrypted ? '내 도장 준비됨 (암호로 잠김)' : '내 도장 준비됨')
+    : '아직 도장이 없습니다 — 아래에서 한 번만 만들면 됩니다';
+  $('#kpub').textContent = ST.pub ? ST.pub.slice(0,16)+'…' : '';
+  $('#pubbox').value = ST.pub
+    || (ST.encrypted ? '(암호로 잠겨 있어 지금은 표시할 수 없습니다 — 사진을 한 번 보호하면 표시됩니다)'
+                     : '아직 도장이 없습니다');
+  show($('#ppass'), ST.encrypted && !keyless());
+  show($('#mkcard'), !ST.has_key);
+  show($('#setup'), !ST.has_key);
+  if (!ST.has_key) { show($('#setupForm'), false); show($('#setupPick'), true); }
+  $('#platform').innerHTML = Object.entries(ST.platforms)
+    .map(([k,v]) => `<option value="${k}">${v.label} — ${v.note}</option>`).join('');
+  syncBtns();
+}
+const syncBtns = () => {
+  const tooLong = CAP !== null && msgBytes() > CAP;
+  const kl = $('#pkeyless') && $('#pkeyless').checked;
+  // 키 없이 심을 때는 문장이 있어야 심을 게 생긴다
+  const ready = pImg && (kl ? msgBytes() > 0 : ST.has_key);
+  $('#pgo').disabled = DEAD || !ready || tooLong;
+  $('#pbench').disabled = DEAD || !(pImg && ST.has_key);
+  $('#vgo').disabled = DEAD || !vImg;   // 문장은 키 없이도 읽히므로 사진만 있으면 된다
+  if ($('#setupGo')) $('#setupGo').disabled = DEAD || $('#setupGo').disabled;
+};
+
+// ── 탭 ────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t));
+  ['protect','verify','key'].forEach(id => show($('#'+id), id === t.dataset.t));
+});
+
+// ── 보호 ──────────────────────────────────────────
+dropzone($('#pdrop'), $('#pfile'), f => { pImg = f; syncBtns(); askCapacity(); });
+
+// ── 문장 ──────────────────────────────────────────
+let CAP = null;
+const msgBytes = () => new TextEncoder().encode($('#pmsg').value.trim()).length;
+async function askCapacity(){
+  CAP = null; showCap();
+  if (!pImg) return;
+  try {
+    const fd = new FormData(); fd.append('file', pImg); fd.append('platform', $('#platform').value);
+    CAP = (await api('/api/capacity', fd)).capacity;
+  } catch { CAP = null; }
+  showCap();
+}
+function showCap(){
+  const n = msgBytes();
+  if (CAP === null) { $('#pcap').textContent = pImg ? '길이 확인 중…' : '사진을 먼저 선택하면 넣을 수 있는 길이가 나옵니다'; }
+  else $('#pcap').innerHTML = `${n} / ${CAP} 바이트 <span style="opacity:.7">· 한글은 글자당 3바이트, `
+      + `이 사진엔 한글 ${Math.floor(CAP/3)}자까지</span>`
+      + (n > CAP ? ' <span class="pill bad">너무 깁니다</span>' : '');
+  syncBtns();
+}
+$('#pmsg').oninput = showCap;
+$('#platform').onchange = askCapacity;
+const keyless = () => $('#pkeyless').checked;
+$('#pkeyless').onchange = () => {
+  $('#pklnote').innerHTML = keyless()
+    ? '<b style="color:var(--warn)">사이드카(서명)가 만들어지지 않습니다 — 원작자 증명은 불가능합니다</b>'
+    : '작성자 증명 없이 문장만 넣습니다';
+  show($('#ppass'), ST.encrypted && !keyless());
+  syncBtns();
+};
+
+function body(f, overwrite){
+  const fd = new FormData();
+  fd.append('file', f); fd.append('platform', $('#platform').value);
+  fd.append('passphrase', $('#ppass').value || '');
+  fd.append('message', $('#pmsg').value.trim());
+  if (overwrite) fd.append('overwrite', '1');
+  if (keyless()) fd.append('keyless', '1');
+  fd.append('no_ai', $('#pnoai').checked ? '1' : '0');
+  return fd;
+}
+
+$('#pgo').onclick = () => runProtect(false);
+
+async function runProtect(overwrite){
+  err($('#perr'), ''); show($('#bres'), false); show($('#pwarn'), false);
+  $('#pgo').disabled = true; $('#pgo').textContent = '처리 중…';
+  try {
+    const r = await api('/api/protect', body(pImg, overwrite));
+    const url = 'data:image/jpeg;base64,' + r.image_b64;
+    const cUrl = r.sidecar
+      ? URL.createObjectURL(new Blob([JSON.stringify(r.sidecar, null, 2)], {type:'application/json'}))
+      : null;
+    $('#pres').innerHTML = `
+      <h3>완료 — 육안으로는 구별되지 않습니다</h3>
+      ${r.already_marked ? `<p class="note" style="color:var(--warn)">이 사진에는 이미 당신의 워터마크가 있었습니다.
+        새 워터마크가 그 자리를 덮어썼습니다 — 원본에서 다시 만드는 편이 화질에 좋습니다.</p>` : ''}
+      <img class="prev" src="${url}">
+      <div class="kv"><span>해상도</span><span>${r.size[0]} × ${r.size[1]}</span></div>
+      <div class="kv"><span>화질 (PSNR)</span><span>${r.psnr} dB ${r.psnr>38?'· 매우 좋음':'· 양호'}</span></div>
+      ${r.sidecar ? `<div class="kv"><span>심어진 태그</span><span>${r.sidecar.claim.pub.slice(0,24)}…</span></div>` : ''}
+      ${r.message ? `<div class="kv"><span>심어진 문장</span><span>${r.message.replace(/</g,'&lt;')}</span></div>` : ''}
+      ${r.no_ai ? `<div class="kv"><span>AI 학습 거부</span><span>선언 포함 (IPTC/PLUS)</span></div>` : ''}
+      ${r.keyless ? `
+      <div class="backup" style="border-color:var(--line);background:transparent">
+        <h4 style="color:var(--fg)">내려받기</h4>
+        <div class="step"><span class="num">1</span>
+          <div><b>워터마크가 심긴 이미지</b><span class="sub">SNS에 올릴 파일입니다</span></div>
+          <a href="${url}" download="${r.filename}"><button class="go">내려받기</button></a></div>
+        <p class="why"><b style="color:var(--warn)">키 없이 만든 워터마크입니다.</b>
+          문장은 사진 안에 남지만 <b>서명이 없어 원작자 증명은 되지 않습니다.</b>
+          남이 같은 문장을 자기 사진에 심어도 구별할 방법이 없고, 이 사진을 자기 것이라
+          주장해도 반박할 근거가 없습니다. 증명이 필요하면 도장을 만들어 원본에서 다시 심으세요.</p>
+      </div>` : `
+      <div class="backup">
+        <h4>이 세 가지를 반드시 챙기세요</h4>
+        <div class="step"><span class="num">1</span>
+          <div><b>보호된 이미지</b><span class="sub">SNS에 올릴 파일입니다</span></div>
+          <a href="${url}" download="${r.filename}"><button class="go">내려받기</button></a></div>
+        <div class="step"><span class="num">2</span>
+          <div><b>사이드카 (.sig.json)</b>
+            <span class="sub">공개하지 마세요. 원작자 증명의 핵심입니다</span></div>
+          <span class="pill bad" id="scwarn">아직 안 받음</span>
+          <a id="scdl" href="${cUrl}" download="${r.sidecar_filename}"><button class="go">내려받기</button></a></div>
+        <div class="step"><span class="num">3</span>
+          <div><b>원본 파일을 그대로 보관</b>
+            <span class="sub">방금 올린 그 파일. 다시 저장하거나 편집하면 해시가 달라져 증명에 못 씁니다</span></div>
+          <span class="pill warn">직접 보관</span></div>
+        <p class="why">누구든 이 이미지에 워터마크를 다시 심으면 <b>당신의 워터마크는 지워집니다.</b>
+          이미지 안에서는 막을 방법이 없습니다. 그때 원작자를 증명하는 건 <b>2번과 3번뿐</b>입니다.</p>
+      </div>`}`;
+    if (r.keyless) SIDECAR_SAVED = true;   // 지킬 사이드카가 없으니 창 닫기를 막지 않는다
+    else $('#scdl').onclick = () => {
+      SIDECAR_SAVED = true;
+      $('#scwarn').className = 'pill ok';
+      $('#scwarn').textContent = '받음';
+    };
+    show($('#pres'), true);
+    SIDECAR_SAVED = false;
+    if (r.sidecar) $('#pubbox').value = r.sidecar.claim.pub;
+  } catch(e) {
+    if (e.status === 409 && e.detail && e.detail.already) askOverwrite(e.detail);
+    else err($('#perr'), e.message);
+  }
+  $('#pgo').disabled = false; $('#pgo').textContent = '보호하기';
+}
+
+// 이미 워터마크가 있는 사진. 삽입은 이전 값을 지우므로 그냥 진행하지 않는다.
+function askOverwrite(d){
+  if (d.mine)
+    $('#pwarn').innerHTML = `<h3>이 사진에는 이미 당신의 워터마크가 있습니다</h3>
+       <p class="note" style="margin-top:0">그대로 진행해도 되지만, <b>원본 사진에서 다시 만드는 편</b>이
+         화질에 좋습니다. 워터마크를 두 번 겹쳐 넣게 되니까요.</p>`;
+  else if (d.found)
+    $('#pwarn').innerHTML = `<h3><span class="pill bad">주의</span> 다른 사람의 워터마크가 있습니다</h3>
+       <p style="margin:10px 0;padding:12px;background:#0d1117;border-radius:8px;
+          border:1px solid var(--line)">${d.found.replace(/</g,'&lt;')}</p>
+       <p class="note" style="margin-top:0">사진에서 위 문장을 읽어냈습니다 (검사 통과).
+         덮어쓰면 이 워터마크는 <b>영구히 지워집니다.</b> 본인 사진이 맞는지 확인하세요.</p>`;
+  else
+    $('#pwarn').innerHTML = `<h3><span class="pill warn">주의</span> 워터마크 흔적이 있습니다</h3>
+       <p class="note" style="margin-top:0">문장은 심겨 있지 않지만, 이 사진에서
+         <b>다른 사람이 심은 워터마크의 흔적</b>이 발견됐습니다 (흔적 세기 ${(d.trace||0).toFixed(2)}).
+         누구 것인지는 알 수 없습니다. 덮어쓰면 그 워터마크는 <b>영구히 지워집니다.</b>
+         본인 사진이 맞는지 확인하세요.</p>`;
+  $('#pwarn').innerHTML += `<div class="row">
+      <button class="go alt" id="powr">그래도 덮어쓰기</button>
+      <button class="go alt" id="pcancel">취소</button></div>`;
+  show($('#pwarn'), true);
+  $('#powr').onclick = () => runProtect(true);
+  $('#pcancel').onclick = () => show($('#pwarn'), false);
+}
+
+$('#pbench').onclick = async () => {
+  err($('#perr'), '');
+  $('#pbench').disabled = true; $('#pbench').textContent = '측정 중… (2분쯤)';
+  try {
+    const r = await api('/api/benchmark', body(pImg));
+    $('#bres').innerHTML = `<h3>강인성 테스트 — 실제로 살아남는가</h3>
+      <table><tr><td class="sub" style="font-size:11.5px">공격</td>
+      <td class="sub" style="font-size:11.5px;text-align:right">결과 · 공격받은 사진 화질</td></tr>` +
+      r.rows.map(x => `<tr><td>${x.attack}${x.cropped?' <span class="sub">(정렬 복구)</span>':''}</td>
+        <td><span class="pill ${x.match?'ok':'bad'}">${x.match?'검출':'소실'}</span>
+        &nbsp;${x.matched_bits}/${x.total_bits}
+        &nbsp;<span class="sub">${x.damage_psnr}dB</span></td></tr>`).join('') +
+      `</table><p class="note">오른쪽 dB는 <b>공격당한 사진 자체의 화질</b>입니다. 40dB 위면 멀쩡하고,
+        30dB 아래면 눈에 띄게 망가진 상태예요. 워터마크를 지울 만큼 센 공격은 사진도 같이 망가진다는 게
+        이 도구가 기댈 수 있는 유일한 보장입니다.</p>`;
+    show($('#bres'), true);
+  } catch(e) { err($('#perr'), e.message); }
+  $('#pbench').disabled = false; $('#pbench').textContent = '강인성 테스트';
+};
+
+// ── 검증 ──────────────────────────────────────────
+dropzone($('#vdrop'), $('#vfile'), f => { vImg = f; syncBtns(); });
+dropzone($('#sdrop'), $('#sfile'), async f => { sCar = await f.text(); syncBtns(); });
+$('#vpub').oninput = syncBtns;
+
+$('#vgo').onclick = async () => {
+  err($('#verr'), ''); $('#vgo').disabled = true; $('#vgo').textContent = '검증 중…';
+  try {
+    const fd = new FormData();
+    fd.append('file', vImg); fd.append('pub', $('#vpub').value.trim()); fd.append('sidecar', sCar || '');
+    const r = await api('/api/verify', fd);
+    let h = '';
+    if (r.declaration) h += `<h3>AI 학습 거부 선언</h3>
+      <p class="note" style="margin-top:0">이 파일에는 학습 거부 표시가 들어 있습니다.<br>
+        <code style="font-size:11px">${r.declaration.replace(/</g,'&lt;')}</code></p>`;
+    if (r.message) h += `<h3>사진에서 읽어낸 문장</h3>
+      <p style="margin:0 0 6px;padding:12px;background:#0d1117;border-radius:8px;border:1px solid var(--line)">${r.message.replace(/</g,'&lt;')}</p>
+      <p class="note" style="margin-top:0">CRC 검사를 통과한 문장입니다. 한 글자라도 깨졌다면 아예 표시되지 않습니다.</p>`;
+    if (r.watermark) {
+      const w = r.watermark;
+      const odds = w.false_positive < 1e-9 ? '사실상 0'
+                 : '약 ' + Math.round(1/w.false_positive).toLocaleString('ko-KR') + '분의 1';
+      h += `<h3>워터마크 ${w.match ? '<span class="pill ok">일치</span>' : '<span class="pill bad">불일치</span>'}</h3>
+        <div class="kv"><span>비트 일치</span><span>${w.matched_bits}/${w.total_bits}</span></div>
+        <div class="kv"><span>우연히 맞을 확률</span><span>${odds}</span></div>
+        <div class="kv"><span>대조한 공개키</span><span>${r.checked_pub.slice(0,32)}…</span></div>
+        ${w.searched ? '<div class="kv"><span>복구</span><span>크롭된 것으로 보여 정렬을 탐색해 찾음</span></div>' : ''}
+        ${w.regained ? '<div class="kv"><span>복구</span><span>밝기/대비 조작을 되돌려 찾음</span></div>' : ''}
+        ${w.inverted ? '<div class="kv"><span>복구</span><span>극성 반전</span></div>' : ''}
+        <p class="note">${w.match
+          ? '이 이미지는 해당 공개키 소유자의 태그를 담고 있습니다. 다만 워터마크 단독으로는 <b>제3자가 흉내낼 수 있어</b> — 확정 증명은 아래 사이드카입니다.'
+          : '이 공개키의 태그가 발견되지 않았습니다. 재생성(AI img2img)을 거쳤거나, 애초에 표시되지 않은 이미지입니다.'}</p>`;
+    }
+    if (r.sidecar) {
+      const s = r.sidecar, strong = s.signature_valid && (s.is_protected_file || s.is_original_file);
+      h += `<h3 style="margin-top:18px">사이드카 ${strong ? '<span class="pill ok">유효</span>'
+             : s.signature_valid ? '<span class="pill warn">서명은 유효하나 파일 불일치</span>'
+             : '<span class="pill bad">서명 위조</span>'}</h3>
+        <div class="kv"><span>서명</span><span>${s.signature_valid ? '진짜 (개인키 보유자만 생성 가능)' : '검증 실패'}</span></div>
+        <div class="kv"><span>이 파일</span><span>${s.is_protected_file ? '서명된 보호본과 동일'
+             : s.is_original_file ? '서명된 원본과 동일' : '서명 대상과 다름 (재압축·편집됨)'}</span></div>
+        <div class="kv"><span>서명 시각</span><span>${s.claim.created}</span></div>
+        <div class="kv"><span>플랫폼</span><span>${s.claim.platform}</span></div>
+        ${s.phash_verdict ? `<div class="kv"><span>원본과의 닮은 정도</span><span>${
+          {same:'사실상 같은 사진', edited:'같은 사진이 편집된 것으로 보임',
+           different:'다른 사진'}[s.phash_verdict]} (63비트 중 ${s.phash_distance} 차이)</span></div>` : ''}
+        <p class="note">${strong
+          ? '개인키 보유자가 이 이미지를 만들었음이 암호학적으로 증명됩니다.'
+          : !s.signature_valid ? '이 사이드카는 신뢰할 수 없습니다.'
+          : s.phash_verdict && s.phash_verdict !== 'different' && r.watermark && !r.watermark.match
+          ? '<b style="color:var(--warn)">워터마크는 지워졌지만, 이 사진은 서명된 원본에서 나온 것으로 보입니다.</b> '
+            + '누군가 워터마크를 덮어썼을 가능성이 큽니다. 서명된 원본 해시와 워터마크 이전의 원본 파일이 '
+            + '당신에게만 있다는 점이 함께 증거가 됩니다. 다만 닮았다는 것만으로는 확증이 아닙니다.'
+          : s.phash_verdict === 'same'
+          ? '서명된 바이트와는 다르지만 사실상 같은 사진입니다. 재압축·축소를 거친 사본으로 보입니다.'
+          : s.phash_verdict === 'edited'
+          ? '서명된 원본이 편집된 것으로 보입니다. 닮았다는 것만으로는 확증이 아니니 위쪽 워터마크 결과와 함께 판단하세요.'
+          : '서명 자체는 진짜지만 이 파일은 서명된 사진과 다릅니다.'}</p>`;
+    }
+    if (!h) h = `<h3>아무것도 찾지 못했습니다</h3>
+      <p class="note" style="margin-top:0">이 사진에서는 심긴 문장을 읽을 수 없었습니다.
+        워터마크가 없거나, 크롭·재압축·색보정으로 문장이 깨졌을 수 있습니다.
+        작성자 태그까지 확인하려면 위에 공개키를 넣으세요.</p>`;
+    $('#vres').innerHTML = h; show($('#vres'), true);
+  } catch(e) { err($('#verr'), e.message); }
+  $('#vgo').disabled = false; $('#vgo').textContent = '검증';
+};
+
+// ── 키 ────────────────────────────────────────────
+// ── 첫 실행: 도장 만들기 ────────────────────────────
+// 암호를 '선택 입력칸'으로 두면 그냥 지나쳐서 의도와 다른 키가 만들어진다.
+// 그래서 처음부터 둘 중 하나를 고르게 하고, 암호를 고르면 두 번 입력받는다.
+function pwReady(){
+  const a = $('#pw1').value, b = $('#pw2').value;
+  const ok = a.length > 0 && a === b;
+  $('#pwmsg').textContent = !a ? '' : a !== b ? '두 번 입력한 암호가 다릅니다'
+                          : a.length < 8 ? '만들 수 있습니다 (8자 이상을 권합니다)' : '만들 수 있습니다';
+  $('#pwmsg').style.color = a && a !== b ? 'var(--bad)' : 'var(--dim)';
+  $('#setupGo').disabled = !ok;
+}
+$('#pw1').oninput = $('#pw2').oninput = pwReady;
+$('#setupPass').onclick = () => { show($('#setupPick'), false); show($('#setupForm'), true); $('#pw1').focus(); };
+$('#setupBack').onclick = () => { show($('#setupForm'), false); show($('#setupPick'), true); err($('#setupErr'),''); };
+$('#setupSkip').onclick = () => {
+  $('#pkeyless').checked = true;
+  $('#pkeyless').dispatchEvent(new Event('change'));
+  show($('#setup'), false);
+};
+async function makeKey(passphrase){
+  err($('#setupErr'), '');
+  try {
+    const fd = new FormData(); fd.append('passphrase', passphrase);
+    await api('/api/key', fd);
+    await refresh();
+    show($('#setup'), false);
+    $('#kmsg').textContent = passphrase
+      ? '도장을 만들었습니다 (암호로 잠김) — 이제 사진을 보호할 수 있습니다'
+      : '도장을 만들었습니다 — 이제 사진을 보호할 수 있습니다';
+  } catch(e) { err($('#setupErr'), e.message); }
+}
+$('#setupPlain').onclick = () => makeKey('');
+$('#setupGo').onclick = () => makeKey($('#pw1').value);
+$('#copy').onclick = () => { navigator.clipboard.writeText($('#pubbox').value);
+                             $('#copy').textContent = '복사됨'; setTimeout(()=>$('#copy').textContent='복사',1200); };
+
+refresh();
+</script>
+</body></html>

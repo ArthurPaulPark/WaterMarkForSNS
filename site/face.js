@@ -61,15 +61,52 @@ function scratch(bitmap, side) {
 }
 
 // 68점 중 이마는 없다. 눈썹을 턱 반대쪽으로 밀어 이마선을 추정한다.
-function contour(points, chin) {
-  const jaw = points.slice(0, 17);
-  const brow = points.slice(17, 27);
-  const fore = brow.map((p) => ({ x: p.x + (p.x - chin.x) * 0.45,
-                                  y: p.y + (p.y - chin.y) * 0.45 }));
-  return hull([...jaw, ...fore]);
+// 68점으로 얼굴에 맞는 기울어진 타원을 만든다.
+// 이전에는 눈썹을 턱 반대 방향으로 밀어 이마를 추정하고 볼록껍질을 씌웠는데,
+// 그 밀기가 위쪽뿐 아니라 옆으로도 작용해 이마선이 45% 넓어졌고, 껍질이 뿔처럼
+// 솟아 머리 위 배경까지 지웠다. 얼굴은 다각형보다 타원에 가깝다.
+const mean = (ps) => ({ x: ps.reduce((a, p) => a + p.x, 0) / ps.length,
+                        y: ps.reduce((a, p) => a + p.y, 0) / ps.length });
+
+function contour(pos) {
+  const jaw = pos.slice(0, 17);                       // 턱선: 귀 앞 → 턱끝 → 귀 앞
+  const chin = pos[8];
+  const eyes = mean([mean(pos.slice(36, 42)), mean(pos.slice(42, 48))]);
+
+  // 턱끝 → 눈 중앙이 얼굴의 위쪽. 고개가 기울면 이 축도 같이 기운다.
+  let ux = eyes.x - chin.x, uy = eyes.y - chin.y;
+  const len = Math.hypot(ux, uy) || 1;
+  ux /= len; uy /= len;
+  const px = -uy, py = ux;                            // 얼굴의 가로 방향
+
+  // 이마는 랜드마크에 없다. 턱끝~눈 거리의 0.5배 위가 대략 머리카락 경계다.
+  const top = { x: eyes.x + ux * len * 0.5, y: eyes.y + uy * len * 0.5 };
+  const c = { x: (chin.x + top.x) / 2, y: (chin.y + top.y) / 2 };
+  let semiV = Math.hypot(top.x - chin.x, top.y - chin.y) / 2;
+
+  // 가로 반지름은 턱선이 세로축에서 가장 멀리 벗어난 거리. 얼굴보다 넓어지지 않는다.
+  let semiH = 0;
+  for (const q of jaw) semiH = Math.max(semiH, Math.abs((q.x - c.x) * px + (q.y - c.y) * py));
+
+  // 턱선 17점이 전부 타원 안에 들어올 때까지 균일하게 키운다. 얼굴이 새는 것은
+  // 배경을 조금 더 먹는 것보다 나쁘다 — 새면 가릴 이유가 없어진다.
+  let k = 1;
+  for (const q of jaw) {
+    const a = ((q.x - c.x) * px + (q.y - c.y) * py) / semiH;
+    const b = ((q.x - c.x) * ux + (q.y - c.y) * uy) / semiV;
+    k = Math.max(k, Math.hypot(a, b));
+  }
+  semiH *= k; semiV *= k;
+
+  const out = [];
+  for (let i = 0; i < 24; i++) {
+    const t = (i / 24) * Math.PI * 2;
+    const a = Math.cos(t) * semiH, b = Math.sin(t) * semiV;
+    out.push({ x: c.x + a * px + b * ux, y: c.y + a * py + b * uy });
+  }
+  return out;
 }
 
-// Andrew monotone chain. 라이브러리를 더 들이지 않는다.
 function hull(pts) {
   const p = [...pts].sort((a, b) => a.x - b.x || a.y - b.y);
   const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
@@ -103,7 +140,7 @@ export async function detectFaces(bitmap) {
     };
     const pos = r.landmarks?.positions;
     if (pos && pos.length === 68) {
-      face.poly = contour(pos, pos[8]).map((p) => [p.x / c.width, p.y / c.height]);
+      face.poly = contour(pos).map((p) => [p.x / c.width, p.y / c.height]);
       face.grow = GROW_POLY;      // 윤곽이 있으면 훨씬 적게 넓혀도 얼굴을 덮는다
     }
     return face;

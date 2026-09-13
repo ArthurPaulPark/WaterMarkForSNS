@@ -77,18 +77,17 @@ JPEG_Q = 95
 
 # ── 얼굴 가리기 ────────────────────────────────────────────────────
 # 되돌릴 수 없게 만드는 것은 알고리즘의 복잡성이 아니라 "남기는 정보량"이다.
-# 픽셀화는 결정론적 선형 연산이라 블록 평균이 곧 알려진 측정값이 되고,
-# 얼굴 초해상도 모델은 그 측정값에 맞는 얼굴을 찾아낸다. 블록이 많을수록 잘 맞는다.
-# 그래서 기본은 단색이다 — 출력이 양자화된 색 세 개를 통해서만 원본에 의존하므로
-# 복원할 것이 남지 않는다. 휴리스틱이 아니라 정보이론이다.
-MASK_SOLID = "solid"      # 기본
-MASK_MOSAIC = "mosaic"    # 모자이크 모양을 원할 때. 강하지만 보장은 아니다
+# 모자이크(블록 평균 픽셀화)를 후보로 검토했지만 재식별 측정으로 기각했다:
+# 블록 4/지터 12 는 재식별 100%, 지터를 24까지 올려도 82.5%, 블록을 3으로 줄여도
+# 25.5% 로 통과선(5%) 을 넘지 못했다. 유일하게 통과한 조합(블록 2, 지터 96)은
+# 무작위 색 사각형 네 개가 되어 감추려던 단색보다 오히려 더 튀면서 더 새는,
+# 자기모순적인 결과였다. 그래서 단색을 유일한 방식으로 남긴다 — 출력이 양자화된
+# 색 세 개를 통해서만 원본에 의존하므로 복원할 것이 남지 않는다. 휴리스틱이
+# 아니라 정보이론이다. (측정 상세: docs/superpowers/specs/2026-09-13-face-masking-design.md)
+MASK_SOLID = "solid"      # 유일하게 지원하는 값. 다른 값이 와도 단색으로 처리한다.
 
 SOLID_LEVELS = 16         # 채우는 색의 양자화 단계
 SOLID_NOISE = 6           # 평평한 색면이 JPEG 에서 띠를 만들지 않게 얹는 잡음
-MOSAIC_BLOCKS = 4         # 얼굴 폭을 넷으로. 8 로 나누면 64표본이 남아 복원에 충분하다
-MOSAIC_LEVELS = 16
-MOSAIC_JITTER = 12        # 양자화 폭과 맞먹는 난수. 블록 평균 = 원본 평균이라는 전제를 깬다
 
 GROW_POLY = 1.08          # 윤곽 폴리곤은 조금만 넓힌다
 GROW_BOX = 1.25           # 랜드마크가 없어 타원을 쓸 때
@@ -285,31 +284,59 @@ def _fit(img: np.ndarray, max_w: int | None, max_h: int | None) -> np.ndarray:
     )
 
 
-def _mask_region(f: dict, w: int, h: int):
-    """가릴 영역의 불리언 마스크와 그 경계 상자. 없으면 (None, None)."""
+def _box_mask(f: dict, w: int, h: int):
+    """x/y/w/h 박스를 타원으로 칠한 마스크. 넓이가 0이면 None.
+
+    face dict 에는 항상 이 박스가 있다 — poly 가 망가져도 되돌아갈 곳이다.
+    """
     grow = float(f.get("grow", 1.0))
+    cx = (float(f["x"]) + float(f["w"]) / 2) * w
+    cy = (float(f["y"]) + float(f["h"]) / 2) * h
+    ax = float(f["w"]) * w * grow / 2
+    ay = float(f["h"]) * h * grow / 2
+    if ax < 0.5 or ay < 0.5:
+        return None
     canvas = np.zeros((h, w), np.uint8)
+    cv2.ellipse(canvas, (int(round(cx)), int(round(cy))),
+                (int(round(ax)), int(round(ay))), 0, 0, 360, 1, -1)
+    return canvas
+
+
+def _mask_region(f: dict, w: int, h: int):
+    """가릴 영역의 불리언 마스크와 그 경계 상자.
+
+    계약: (None, None) 은 정말로 가릴 게 없을 때만 — 박스가 이미지 밖으로
+    완전히 벗어났거나 넓이가 0일 때. 그 외에는 항상 무언가를 돌려준다.
+    poly 가 망가졌거나(점이 3개 미만, 모양이 안 맞음, 값이 유한하지 않음) 거의
+    일직선으로 뭉개져 박스보다 터무니없이 작은 조각만 남으면, 조용히 건너뛰지
+    않고 항상 있는 x/y/w/h 박스로 되돌아간다. "아무것도 안 바뀐다"는 실패가
+    이 기능에서 제일 나쁜 결과이기 때문이다 — 가려야 할 얼굴이 그대로 나간다.
+    """
+    box_canvas = _box_mask(f, w, h)
+    if box_canvas is None:
+        return None, None                       # 넓이 0 — 정말 가릴 게 없다
+
+    canvas = box_canvas
     poly = f.get("poly")
     if poly:
         pts = np.asarray(poly, np.float64)
-        if pts.ndim != 2 or pts.shape[1] != 2 or len(pts) < 3:
-            return None, None
-        centre = pts.mean(0)
-        pts = (centre + (pts - centre) * grow) * [w, h]
-        hull = cv2.convexHull(np.rint(pts).astype(np.int32))
-        cv2.fillConvexPoly(canvas, hull, 1)
-    else:
-        cx = (float(f["x"]) + float(f["w"]) / 2) * w
-        cy = (float(f["y"]) + float(f["h"]) / 2) * h
-        ax = float(f["w"]) * w * grow / 2
-        ay = float(f["h"]) * h * grow / 2
-        if ax < 0.5 or ay < 0.5:
-            return None, None
-        cv2.ellipse(canvas, (int(round(cx)), int(round(cy))),
-                    (int(round(ax)), int(round(ay))), 0, 0, 360, 1, -1)
+        valid_shape = (pts.ndim == 2 and pts.shape[1] == 2 and len(pts) >= 3
+                       and np.isfinite(pts).all())
+        if valid_shape:
+            grow = float(f.get("grow", 1.0))
+            centre = pts.mean(0)
+            scaled = (centre + (pts - centre) * grow) * [w, h]
+            hull = cv2.convexHull(np.rint(scaled).astype(np.int32))
+            poly_canvas = np.zeros((h, w), np.uint8)
+            cv2.fillConvexPoly(poly_canvas, hull, 1)
+            # 박스 넓이의 5% 도 못 채우면 뭉개진 것으로 보고 박스로 되돌아간다
+            if poly_canvas.sum() >= box_canvas.sum() * 0.05:
+                canvas = poly_canvas
+        # valid_shape 가 False 면 canvas 는 이미 box_canvas — 조용히 박스로 대체
+
     ys, xs = np.nonzero(canvas)
     if len(xs) == 0:
-        return None, None
+        return None, None                       # 박스가 이미지 밖으로 완전히 벗어났다
     return canvas.astype(bool), (int(xs.min()), int(ys.min()),
                                  int(xs.max()) + 1, int(ys.max()) + 1)
 
@@ -327,24 +354,18 @@ def _fill_solid(patch: np.ndarray, inside: np.ndarray, rng) -> np.ndarray:
     return np.clip(base + noise, 0, 255).astype(np.uint8)
 
 
-def _fill_mosaic(patch: np.ndarray, rng) -> np.ndarray:
-    """굵은 블록으로 픽셀화하고 블록마다 난수를 더한다."""
-    ph, pw = patch.shape[:2]
-    b = max(8, int(round(pw / MOSAIC_BLOCKS)))
-    sw, sh = max(1, -(-pw // b)), max(1, -(-ph // b))
-    small = cv2.resize(patch, (sw, sh), interpolation=cv2.INTER_AREA).astype(np.float64)
-    step = 256.0 / MOSAIC_LEVELS
-    small = np.floor(small / step) * step + step / 2
-    small += rng.integers(-MOSAIC_JITTER, MOSAIC_JITTER + 1, small.shape)
-    small = np.clip(small, 0, 255).astype(np.uint8)
-    return cv2.resize(small, (pw, ph), interpolation=cv2.INTER_NEAREST)
-
-
 def mask_faces(img: np.ndarray, faces: list[dict], rng=None) -> np.ndarray:
     """얼굴 영역을 되돌릴 수 없게 지운다. img(BGR)를 제자리에서 고치고 돌려준다.
 
     faces 의 좌표는 0~1 정규화다. 640px 축소본에서 찾은 것을 여기서 칠할 수 있고,
     자바스크립트 쪽과 같은 숫자를 주고받는다.
+
+    face 의 "mode" 는 지금은 무엇이 오든 단색으로 처리한다 — 생성 얼굴 합성 등
+    미래의 다른 방식을 위해 필드만 남겨둔다.
+
+    계약: 이 함수가 정말로 아무것도 안 바꾸는 경우는 얼굴이 하나도 없거나, 모든
+    얼굴이 이미지와 겹치지 않거나 넓이가 0일 때뿐이다. 그 외에는 항상 무언가를
+    가린다 — 조용히 건너뛰는 것이 이 기능에서 제일 나쁜 실패이기 때문이다.
 
     난수는 저장하지 않는다. 같은 사진을 두 번 처리하면 다른 결과가 나온다.
     """
@@ -362,10 +383,7 @@ def mask_faces(img: np.ndarray, faces: list[dict], rng=None) -> np.ndarray:
         sub = inside[y0:y1, x0:x1]
         if not sub.any():
             continue
-        if f.get("mode", MASK_SOLID) == MASK_MOSAIC:
-            filled = _fill_mosaic(patch, rng)
-        else:
-            filled = _fill_solid(patch, sub, rng)
+        filled = _fill_solid(patch, sub, rng)
         patch[sub] = filled[sub]
     return img
 

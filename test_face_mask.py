@@ -107,13 +107,16 @@ def test_polygon_covers_less_than_ellipse():
 def test_nondeterministic():
     """같은 입력을 두 번 가리면 결과가 다르다.
 
-    난수가 실제로 들어갔다는 뜻이고, 결정론적 역산의 전제를 깬다.
+    난수가 실제로 들어갔다는 뜻이고, 결정론적 역산의 전제를 깬다. solid 든
+    mosaic 이든 마찬가지다 — mosaic 이 재식별을 못 막는다고 이 성질까지 없는
+    것은 아니다.
     """
     src = photo()
-    face = {"x": .3, "y": .3, "w": .3, "h": .3, "grow": 1.0, "mode": wm.MASK_SOLID}
-    a = wm.mask_faces(src.copy(), [face])
-    b = wm.mask_faces(src.copy(), [face])
-    assert not np.array_equal(a, b), "두 번 돌려도 결과가 같다"
+    face = {"x": .3, "y": .3, "w": .3, "h": .3, "grow": 1.0}
+    for mode in (wm.MASK_SOLID, wm.MASK_MOSAIC):
+        a = wm.mask_faces(src.copy(), [dict(face, mode=mode)])
+        b = wm.mask_faces(src.copy(), [dict(face, mode=mode)])
+        assert not np.array_equal(a, b), f"{mode}: 두 번 돌려도 결과가 같다"
 
 
 def test_solid_carries_only_the_median():
@@ -182,26 +185,39 @@ def _reid_top1(mode, n=200, size=96, seed=3):
 
 
 def test_reidentification_is_chance_level():
-    """가려진 출력에서 원본을 골라낼 수 없다.
+    """가려진 출력에서 원본을 골라낼 수 없다 — 그건 solid 얘기고, mosaic 은 아니다.
 
     후보 200개 중 하나를 고르는 문제라 우연은 0.5%다. 실측 2.0%는 정확히
     우연은 아니다 — 양자화된 중앙값 색(SOLID_LEVELS 16단계)이 설계상 그대로
-    남기 때문이다. 모자이크는 같은 시험에서 최선의 조합(블록 2, 지터 96)도
-    45.5%로 떨어지지 않아 폐기했다 (docs/superpowers/specs/2026-09-13-face-masking-design.md).
+    남기 때문이다.
+
+    mosaic 에는 통과선을 두지 않는다. 기본 상수(블록4/지터12)에서 재식별은
+    100.0%다 — 지터를 24로 올려도 100.0%, 블록을 3으로 줄여도 100.0%로,
+    통과할 만한 조합이 없다(전체 측정표: docs/superpowers/specs/2026-09-13-face-masking-design.md).
+    통과 기준을 mosaic 이 넘을 수 있는 값으로 낮추면 "가려준다"는 거짓말이
+    된다. 그래서 여기서는 실제로 지켜야 할 불변식만 확인한다: 기본값(solid)이
+    선택지(mosaic)보다 압도적으로 강해야 한다는 것.
     """
     chance = 1 / 200
     solid = _reid_top1(wm.MASK_SOLID)
-    print(f"    재식별 top-1 — 단색 {solid:.1%} (우연 {chance:.1%})")
+    mosaic = _reid_top1(wm.MASK_MOSAIC)
+    print(f"    재식별 top-1 — 단색 {solid:.1%}, 모자이크 {mosaic:.1%} (우연 {chance:.1%})")
     assert solid <= 0.02, f"단색인데 재식별이 된다: {solid:.1%}"
+    assert solid < mosaic / 10, (
+        f"기본값(solid)이 선택지(mosaic)보다 압도적으로 강해야 한다: "
+        f"solid {solid:.1%} vs mosaic {mosaic:.1%}"
+    )
 
 
 def test_remaining_samples_are_counted():
     """가린 영역에 남은 독립 표본 수를 세어 기록한다.
 
-    복원 가능성은 이 숫자가 결정한다. 눈에 보이게 남겨둔다.
+    복원 가능성은 이 숫자가 결정한다. 눈에 보이게 남겨둔다. mosaic 쪽은 통과선이
+    없다 — 정보용으로만 찍는다(위 재식별 시험 참고).
     """
     solid_samples = 3                                   # 양자화된 색 세 개
-    print(f"    남은 표본 — 단색 {solid_samples}개")
+    mosaic_samples = wm.MOSAIC_BLOCKS ** 2 * 3           # 블록마다 색 세 개
+    print(f"    남은 표본 — 단색 {solid_samples}개, 모자이크 {mosaic_samples}개")
     assert solid_samples == 3
 
 

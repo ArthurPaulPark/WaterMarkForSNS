@@ -47,19 +47,40 @@ Embedding costs about 40 dB PSNR (SSIM 0.96–0.998) — not perceptible.
 ### Face masking
 
 Finds faces in the photo and irreversibly erases the ones you pick, before the
-watermark and the perceptual hash go in. Fill is the only mode — the region is
-replaced by its own quantised median colour plus a little noise, so the output
-depends on the original through three numbers and nothing else. Detection is
-never treated as final: every found face defaults to checked, and dragging on
-the photo adds or removes a box by hand.
+watermark and the perceptual hash go in. Detection is never treated as final:
+every found face defaults to checked, and dragging on the photo adds or
+removes a box by hand.
+
+There are two fill strengths. **Solid** (the default) replaces the region with
+its own quantised median colour plus a little noise — the output depends on
+the original through three numbers and nothing else. **Mosaic** is offered
+only because some users want that look; it is not a protection. It keeps the
+block averages of the original, and jitter on top of them does not change
+that. Measured re-identification (picking the correct original out of 200
+candidates; chance is 0.5%):
 
 | Masking | Re-identification top-1 | Samples left |
 |---|---|---|
-| Solid (only mode) | 2.0% | 3 |
+| Solid (default) | 2.0% | 3 |
+| Mosaic, blocks 4 / jitter 12 (default mosaic) | 100.0% | 48 |
+| Mosaic, blocks 4 / jitter 24 | 100.0% | 48 |
+| Mosaic, blocks 4 / jitter 48 | 74.5% | 48 |
+| Mosaic, blocks 4 / jitter 96 | 13.5% | 48 |
+| Mosaic, blocks 3 / jitter 12 | 100.0% | 27 |
+| Mosaic, blocks 3 / jitter 24 | 82.5% | 27 |
+| Mosaic, blocks 3 / jitter 48 | 25.5% | 27 |
+| Mosaic, blocks 3 / jitter 96 | 6.0% | 27 |
+| Mosaic, blocks 2 / jitter 12 | 45.5% | 12 |
+| Mosaic, blocks 2 / jitter 24 | 17.5% | 12 |
+| Mosaic, blocks 2 / jitter 48 | 5.5% | 12 |
+| Mosaic, blocks 2 / jitter 96 | 1.0% | 12 |
 
-Chance is 0.5% (200 candidates). It measures above chance because the
-quantised median colour is retained by design — that is the entire channel
-left open, and it is not enough to reconstruct a face.
+Solid measures above chance because the quantised median colour is retained
+by design — that is the entire channel left open, and it is not enough to
+reconstruct a face. Mosaic, at every setting that still looks like an ordinary
+mosaic, lets an attacker recover the correct original essentially every time.
+**If you actually need to protect someone, use solid. Mosaic is appearance
+only.**
 
 ### Privacy
 
@@ -300,18 +321,35 @@ IPTC Photo Metadata 2023.1 이 PLUS 어휘를 받아들여 표준화한 항목�
 사진에 함께 찍힌 **다른 사람의 초상권**을 지킨다. 사진에서 얼굴을 찾아 번호를 붙이고,
 사용자가 고른 얼굴만 워터마크·지각 해시보다 **먼저** 되돌릴 수 없게 지운다.
 
-가리는 방식은 **단색 한 가지**다. 그 영역의 채널별 중앙값 색을 16단계로 양자화해 채우고
-화소당 미세한 난수를 더한다. 출력은 원본 얼굴에 **양자화된 색 세 개**를 통해서만
-의존하므로, 모자이크 제거 모델이 복원할 정보 자체가 남지 않는다 — 알고리즘의 문제가
-아니라 정보량의 문제라 증명 가능하다.
+가리는 방식은 두 가지다. **단색(기본)** 은 그 영역의 채널별 중앙값 색을 16단계로
+양자화해 채우고 화소당 미세한 난수를 더한다. 출력은 원본 얼굴에 **양자화된 색 세
+개**를 통해서만 의존하므로, 복원할 정보 자체가 남지 않는다 — 알고리즘의 문제가
+아니라 정보량의 문제라 증명 가능하다. **모자이크**는 그 모양을 원하는 사용자를
+위한 선택지일 뿐, 보호 수단이 아니다. 블록 평균은 원본이 준 정보 그대로 남고,
+그 위에 얹는 지터는 그 사실을 바꾸지 못한다. 재식별 측정(후보 200장 중 진짜
+원본 하나 맞히기, 우연은 0.5%):
 
 | 가리기 방식 | 재식별 top-1 | 남는 표본 |
 |---|---|---|
-| 단색 (유일한 방식) | 2.0% | 3개 |
+| 단색 (기본) | 2.0% | 3개 |
+| 모자이크, 블록4/지터12 (모자이크 기본값) | 100.0% | 48개 |
+| 모자이크, 블록4/지터24 | 100.0% | 48개 |
+| 모자이크, 블록4/지터48 | 74.5% | 48개 |
+| 모자이크, 블록4/지터96 | 13.5% | 48개 |
+| 모자이크, 블록3/지터12 | 100.0% | 27개 |
+| 모자이크, 블록3/지터24 | 82.5% | 27개 |
+| 모자이크, 블록3/지터48 | 25.5% | 27개 |
+| 모자이크, 블록3/지터96 | 6.0% | 27개 |
+| 모자이크, 블록2/지터12 | 45.5% | 12개 |
+| 모자이크, 블록2/지터24 | 17.5% | 12개 |
+| 모자이크, 블록2/지터48 | 5.5% | 12개 |
+| 모자이크, 블록2/지터96 | 1.0% | 12개 |
 
-우연은 200장 중 하나를 고르는 문제라 0.5%다. 그보다 높게 나오는 이유는 분명하다 —
-**양자화된 중앙값 색이 설계상 그대로 남기 때문**이다. 그것이 유일하게 열어 둔 통로이고,
-얼굴을 복원하기에는 부족한 양이다.
+단색이 우연(0.5%)보다 높게 나오는 이유는 분명하다 — **양자화된 중앙값 색이
+설계상 그대로 남기 때문**이다. 그것이 유일하게 열어 둔 통로이고, 얼굴을 복원하기에는
+부족한 양이다. 모자이크는 보통의 모자이크로 보이는 설정 전부에서 공격자가 사실상
+매번 정확한 원본을 되찾는다. **초상권을 실제로 지켜야 한다면 단색을 쓴다. 모자이크는
+모양만 가릴 뿐이다.**
 
 **자동 탐지는 최종 결과가 아니다.** 찾은 얼굴은 기본으로 전부 체크되고, 사진 위를
 끌면 직접 박스를 추가·삭제할 수 있다 — 옆얼굴·작은 얼굴·가려진 얼굴은 탐지가 놓치므로

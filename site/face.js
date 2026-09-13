@@ -4,13 +4,22 @@
 // watermark.py 의 같은 주석에 있다. 아래 상수는 watermark.py 와 같은 값이어야 한다 —
 // 한쪽만 고치지 말 것.
 
-// 모자이크 모드는 없다 — 재식별 실험에서 계획한 설정으로 200장 중 원본을
-// 100% 맞혔다(우연은 0.5%). 어떤 설정으로도 평탄 채우기보다 나은 조합이 없었다.
-// solid 가 유일한 모드다. mode 필드는 남겨 둔다 — 나중에 생성 얼굴 합성 모드가
-// 여기 추가된다. 모르는 값은 조용히 solid 로 취급한다.
+// 기본은 solid 다 — 출력이 양자화된 색 세 개를 통해서만 원본에 의존하므로
+// 복원할 것이 남지 않는다.
+//
+// mosaic 은 그 모양을 원하는 사용자를 위한 선택지다 — 보호 수단이 아니다.
+// 지터는 블록 평균 위에 잡음을 더할 뿐, 평균 자체(원본이 준 정보)는 그대로
+// 남는다. 재식별 측정(후보 200장 중 진짜 원본 하나 맞히기, 우연은 0.5%):
+// 블록4/지터12 = 100.0%, 블록4/지터24 = 100.0%, 블록3/지터12 = 100.0% — 이
+// 설정들에서 공격자는 사실상 매번 정확한 원본을 되찾는다. 실제로 지키는 것은
+// solid(재식별 2.0%)뿐이다. 자세한 근거와 전체 측정표는 watermark.py 의 같은
+// 주석과 docs/superpowers/specs/2026-09-13-face-masking-design.md 에 있다.
+// 아래 상수는 watermark.py 와 같은 값이어야 한다 — 한쪽만 고치지 말 것.
 export const MASK_SOLID = 'solid';
+export const MASK_MOSAIC = 'mosaic';
 
 const SOLID_LEVELS = 16, SOLID_NOISE = 6;
+const MOSAIC_BLOCKS = 4, MOSAIC_LEVELS = 16, MOSAIC_JITTER = 12;
 export const GROW_POLY = 1.08, GROW_BOX = 1.25, GROW_MANUAL = 1.0;
 const DETECT_SIDE = 640;
 
@@ -264,15 +273,70 @@ function fillSolid(img, w, inside, box) {
     }
 }
 
-// f.mode 는 지금은 항상 solid 다 — 모르는 값(미래의 생성 얼굴 합성 모드 등)도
-// 조용히 solid 로 취급한다. 아무것도 안 칠하는 실패를 만들지 않는다.
+// 굵은 블록으로 나눠 블록 평균으로 채우고, 블록마다 잡음을 더한다. 보호 수단이
+// 아니다 — 위쪽 MASK_MOSAIC 주석과 측정 참고.
+//
+// 블록 경계와 평균 계산 방식이 watermark.py 의 _fill_mosaic 과 정확히 같아야
+// 한다 — 브라우저의 이미지 리사이즈나 cv2.resize 처럼 알고리즘이 문서화돼 있지
+// 않은 함수에 맡기면 두 언어가 갈릴 수 있다(실측: 무작위 패치에서 블록의 절반
+// 가까이가 양자화 구간 하나만큼 갈렸다). 그래서 블록 경계를 직접 계산하고,
+// 그 안의 픽셀을 합/개수로 평균낸다 — 정수 픽셀이라 부동소수 오차 없이 파이썬과
+// 정확히 같은 값이 나온다. 평균은 상자 전체(마스크 밖 포함)로 내는 것도 파이썬과
+// 같다 — 칠할 때만 inside 로 걸러낸다.
+function fillMosaic(img, w, inside, box) {
+  const [x0, y0, x1, y1] = box;
+  const pw = x1 - x0, ph = y1 - y0;
+  const b = Math.max(8, Math.round(pw / MOSAIC_BLOCKS));
+  const sw = Math.max(1, Math.ceil(pw / b)), sh = Math.max(1, Math.ceil(ph / b));
+  const step = 256 / MOSAIC_LEVELS;
+  const noise = randBytes(sw * sh * 3);
+  const val = new Uint8Array(sw * sh * 3);
+
+  for (let sy = 0; sy < sh; sy++) {
+    const by0 = y0 + sy * b, by1 = Math.min(y1, by0 + b);
+    for (let sx = 0; sx < sw; sx++) {
+      const bx0 = x0 + sx * b, bx1 = Math.min(x1, bx0 + b);
+      const sum = [0, 0, 0];
+      let count = 0;
+      for (let y = by0; y < by1; y++)
+        for (let x = bx0; x < bx1; x++) {
+          const p = (y * w + x) * 4;
+          sum[0] += img[p]; sum[1] += img[p + 1]; sum[2] += img[p + 2];
+          count++;
+        }
+      const s = sy * sw + sx;
+      for (let k = 0; k < 3; k++) {
+        const mean = count ? sum[k] / count : 128;
+        const q = Math.floor(mean / step) * step + step / 2;
+        // 지터는 양자화 폭과 맞먹는다 — 그래도 블록 값이 곧 원본 평균이라는
+        // 사실은 바뀌지 않는다(재식별을 막지 못한다. 위 주석 참고).
+        const j = (noise[s * 3 + k] % (2 * MOSAIC_JITTER + 1)) - MOSAIC_JITTER;
+        val[s * 3 + k] = Math.max(0, Math.min(255, Math.round(q + j)));
+      }
+    }
+  }
+  for (let y = y0; y < y1; y++)
+    for (let x = x0; x < x1; x++) {
+      const i = y * w + x;
+      if (!inside[i]) continue;
+      const sy = Math.min(sh - 1, ((y - y0) / b) | 0);
+      const sx = Math.min(sw - 1, ((x - x0) / b) | 0);
+      const s = sy * sw + sx;
+      const p = i * 4;
+      for (let k = 0; k < 3; k++) img[p + k] = val[s * 3 + k];
+    }
+}
+
+// f.mode 가 MASK_MOSAIC 이면 모자이크로, 그 외(기본 포함)에는 solid 로 채운다.
+// 모르는 값은 조용히 solid 로 취급한다. 아무것도 안 칠하는 실패를 만들지 않는다.
 export function maskFaces(ctx, w, h, faces) {
   if (!faces || !faces.length) return;
   const image = ctx.getImageData(0, 0, w, h);
   for (const f of faces) {
     const r = regionMask(w, h, f);
     if (!r) continue;
-    fillSolid(image.data, w, r.inside, r.box);
+    if (f.mode === MASK_MOSAIC) fillMosaic(image.data, w, r.inside, r.box);
+    else fillSolid(image.data, w, r.inside, r.box);
   }
   ctx.putImageData(image, 0, 0);
 }

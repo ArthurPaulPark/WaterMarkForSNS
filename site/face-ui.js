@@ -3,8 +3,10 @@
 // 탐지는 옆얼굴과 작은 얼굴을 놓치고 오탐도 낸다. 초상권에서 놓침은 실제 피해라
 // 자동 결과를 최종으로 쓰지 않는다 — 기본 전부 체크, 수동 추가·삭제가 1급 기능이다.
 //
-// 가리기 방식은 solid 하나뿐이다(모자이크는 재식별 실험에서 탈락 — face.js 참고).
-// 그래서 이 패널에는 방식을 고르는 컨트롤이 없다.
+// 가리기 방식은 기본이 solid(유일하게 지키는 방식)이고, 모자이크는 그 모양을
+// 원하는 사용자를 위한 선택지다 — 보호 수단이 아니다(재식별 측정: face.js,
+// watermark.py 의 같은 주석 참고). 그래서 체크박스는 기본 꺼짐(solid)이고,
+// 라벨에 보호되지 않는다는 사실을 그대로 적는다.
 import * as F from './face.js';
 
 const el = (tag, css, text) => {
@@ -21,7 +23,12 @@ export function createFacePanel(host) {
   const head = el('div', 'display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:10px');
   const title = el('b', '', '얼굴 가리기');
   const status = el('span', 'color:var(--dim);font-size:12.5px');
-  head.append(title, status, el('div', 'flex:1'));
+  const mosaicLabel = el('label',
+    'display:flex;align-items:center;gap:5px;font-size:12.5px;color:var(--dim);cursor:pointer');
+  const mosaicBox = document.createElement('input');
+  mosaicBox.type = 'checkbox';
+  mosaicLabel.append(mosaicBox, document.createTextNode('모자이크 — 모양만 가립니다. 복원될 수 있습니다'));
+  head.append(title, status, mosaicLabel, el('div', 'flex:1'));
 
   const stage = el('div', 'position:relative;line-height:0;user-select:none;touch-action:none');
   const view = el('canvas', 'max-width:100%;height:auto;border-radius:8px;cursor:crosshair');
@@ -137,11 +144,12 @@ export function createFacePanel(host) {
       paint(); chips(); tally();
     },
     selected() {
+      const mode = mosaicBox.checked ? F.MASK_MOSAIC : F.MASK_SOLID;
       return faces.filter((f) => f.on !== false).map((f) => ({
         x: f.x, y: f.y, w: f.w, h: f.h,
         ...(f.poly ? { poly: f.poly } : {}),
         grow: f.grow ?? F.GROW_MANUAL,
-        mode: F.MASK_SOLID,
+        mode,
       }));
     },
     count() {

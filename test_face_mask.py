@@ -212,38 +212,31 @@ def test_reidentification_is_chance_level():
 
 
 def test_remaining_samples_are_counted():
-    """가린 영역에 남은 독립 표본 수를 세어 기록하고, 실제로 그 안에 갇히는지 잰다.
+    """단색 채우기가 실제로 양자화 칸 한가운데 색을 쓰는지 확인한다.
 
-    복원 가능성은 이 숫자가 결정한다. mosaic 쪽은 통과선이 없다 — 정보용으로만
-    찍는다(위 재식별 시험 참고).
+    복원 가능성은 "가린 영역에 몇 개의 독립 표본이 남는가"가 결정한다. 단색은 셋이다 —
+    RGB 각 채널의 양자화된 기준색 하나씩. 그 주장이 참이려면 채우는 색이 원본 중앙값이
+    아니라 **칸 한가운데** 값이어야 한다. 여기서는 그걸 직접 잰다.
 
-    예전 판은 `solid_samples = 3` 을 상수로 박아두고 `assert solid_samples == 3` 만
-    했다 — `_fill_solid` 를 어떻게 고쳐도(중앙값 대신 평균을 쓰든, 양자화를
-    빼먹든, `SOLID_LEVELS` 를 256 으로 올리든) 통과하는 항진명제였다. 여기서는
-    실제로 `_fill_solid` 를 돌려 채널마다 몇 가지 기준색이 나오는지 재고, 그 값이
-    `SOLID_LEVELS` 를 넘지 않는지 확인한다 — 양자화 구현이 깨지면 이 시험이 잡는다.
+    앞선 두 판이 모두 항진명제였다. 처음엔 `assert 3 == 3` 이었고, 다음엔
+    `len(buckets) <= SOLID_LEVELS` 였는데 uint8 출력이면 무조건 참이라 양자화를
+    통째로 빼도 통과했다. 이 판은 양자화를 빼면 실제로 깨진다 — 칸 경계 근처
+    입력(예: 48)에서 기준색이 56 이어야 하는데 원본값 48 이 나오면 잡음 폭 6 을
+    넘어 어긋나기 때문이다.
     """
     step = 256.0 / wm.SOLID_LEVELS
     rng = np.random.default_rng(11)
-    buckets = set()
     for level in range(0, 256, 3):                     # 채널값 전 구간을 촘촘히 훑는다
         patch = np.full((2, 2, 3), level, np.uint8)
-        inside = np.ones((2, 2), bool)
-        out = wm._fill_solid(patch, inside, rng)
-        # 기준색은 항상 칸 한가운데(k*step + step/2)에 있고 잡음 폭(SOLID_NOISE)이
-        # 칸 절반보다 작으므로, floor(값/step) 은 잡음에 흔들리지 않고 원래 칸
-        # 번호를 그대로 복원한다 — round 를 쓰면 기준색이 반올림 경계 바로 위에
-        # 앉아 있어 잡음의 부호에 따라 칸이 갈린다(측정 오차가 생긴다).
+        out = wm._fill_solid(patch, np.ones((2, 2), bool), rng)
+        centre = (level // step) * step + step / 2     # 그 값이 속한 칸의 한가운데
         for c in range(3):
-            buckets.add(int(out[0, 0, c] // step))
-    solid_samples = 3                                   # 양자화된 색 세 개(RGB 한 벌)
-    mosaic_samples = wm.MOSAIC_BLOCKS ** 2 * 3           # 블록마다 색 세 개
-    print(f"    남은 표본 — 단색 {solid_samples}개, 모자이크 {mosaic_samples}개"
-          f" (관측된 기준색 종류: {len(buckets)}/{wm.SOLID_LEVELS})")
-    assert len(buckets) <= wm.SOLID_LEVELS, (
-        f"단색 채우기가 SOLID_LEVELS({wm.SOLID_LEVELS})보다 많은 기준색을 실제로 "
-        f"낸다 — 관측 {len(buckets)}가지. _fill_solid 의 양자화가 깨졌다."
-    )
+            got = int(out[0, 0, c])
+            assert abs(got - centre) <= wm.SOLID_NOISE, (
+                f"입력 {level} 은 칸 한가운데 {centre:.0f} 로 채워져야 하는데 {got} 이 나왔다 "
+                f"(허용 잡음 ±{wm.SOLID_NOISE}). _fill_solid 의 양자화가 깨졌다."
+            )
+    print(f"    남은 표본 — 단색 3개(RGB 기준색), 모자이크 {wm.MOSAIC_BLOCKS ** 2 * 3}개")
 
 
 def test_protect_masks_before_watermark():

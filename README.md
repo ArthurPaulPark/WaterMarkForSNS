@@ -44,6 +44,25 @@ Instagram 1080px, bits recovered out of 48. The right column is the quality of t
 
 Embedding costs about 40 dB PSNR (SSIM 0.96–0.998) — not perceptible.
 
+### Perceptual masking
+
+Without it, smooth areas (sky, walls) show a visible grid: QIM snaps every block's
+value to a lattice, and a flat block has no texture to hide that snap behind. Blocks
+whose AC energy is below a threshold (`MASK_K = 0.5` of the quantization step) are
+skipped instead of watermarked, with a floor so a fully flat photo still gets some
+signal. This removes the grid completely (smooth-region max pixel change 9 → 0 on a
+gradient test image) and raises PSNR on smooth content (40.7 → 46.2 dB).
+
+The price: on a real photograph, masking increases attack failures from 1 to 2 out of
+11 — the watermark is now lost on **centre-crop** and **crop-plus-colour-adjustment**,
+where before only the latter failed. This is a deliberate trade: invisibility on
+ordinary photos was judged more important than surviving those two specific edits. A
+`MASK_K` sweep (0.35 / 0.50 / 0.65 / 0.85) showed 0.35–0.65 perform identically — flat
+blocks have almost no AC energy, so any of these thresholds catches them the same way
+— while 0.85 cuts into genuinely textured blocks and is measurably worse (4 failures
+instead of 2 on the same real photo). `MASK_K = 0.5` was chosen as the middle of the
+identical range.
+
 ### Face masking
 
 Finds faces in the photo and irreversibly erases the ones you pick, before the
@@ -238,6 +257,24 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
 SSIM 은 0.96~0.998, 매끈한 하늘 기준 픽셀 차이는 평균 2.05·최대 12(256단계 중)이다.
 32px 블록 격자 얼룩이 생기는지 따로 확인했으나 블록별 편차가 오히려 더 작아 격자는 생기지 않았다.
+
+### 지각 마스킹 — 격자를 없애는 대가
+
+마스킹이 없으면 하늘·벽처럼 매끈한 영역에 격자가 눈에 보인다. QIM 이 블록마다 값을
+격자점으로 스냅하는데, 평평한 블록에는 그 스냅을 가려줄 무늬가 없기 때문이다. AC
+에너지(양자화 간격 기준 `MASK_K = 0.5` 미만)가 부족한 블록은 심지 않고 건너뛴다 —
+다만 사진 전체가 평평해도 최소한의 신호는 남도록 바닥(`MASK_FLOOR`)을 둔다. 이걸로
+그라디언트 테스트 이미지의 매끈한 영역 최대 픽셀 변화가 9 → 0 으로 사라지고, 매끈한
+영역 PSNR 은 40.7 → 46.2dB 로 올라간다.
+
+대가: 실제 사진 한 장 기준으로 11개 공격 중 실패가 1개 → 2개로 늘었다 — 이제
+**정중앙 크롭**과 **크롭+밝기/대비 조작**에서 워터마크를 잃는다 (마스킹 전에는
+후자만 실패했다). 이건 사용자가 측정치를 보고 의도적으로 고른 교환이다: 흔한 사진에서
+안 보이는 것이 그 두 가지 편집을 견디는 것보다 중요하다고 판단했다. `MASK_K` 를
+0.35/0.50/0.65/0.85 로 스윕한 결과 0.35~0.65 는 완전히 동일했다 — 평평한 블록은 AC
+에너지가 거의 0 이라 어느 문턱이든 똑같이 걸러지기 때문이다 — 반면 0.85 는 진짜
+무늬가 있는 블록까지 파고들어 눈에 띄게 더 나빴다(같은 사진에서 실패 2개가 아니라
+4개). 그래서 동일 구간의 중앙값인 `MASK_K = 0.5` 를 골랐다.
 
 ---
 

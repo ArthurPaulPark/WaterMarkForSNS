@@ -24,6 +24,21 @@ import pywt
 
 BLOCK = 4
 
+# ── 지각 마스킹 ────────────────────────────────────────────────────────────
+# 하늘·벽처럼 평평한 곳에서는 블록마다의 양자화 오프셋을 가려줄 무늬가 없어서
+# 규칙적인 격자로 보인다. 강도를 낮추는 것으로는 해결되지 않았다 (180→80 으로
+# 반토막 내도 하늘 최대변화 9→5 인데 벤치마크 최악은 41→33 으로 무너진다).
+# 그래서 무늬가 있는 곳에는 전력으로 심고, 없는 곳에는 아예 심지 않는다.
+# MASK_K 스윕(0.35/0.50/0.65/0.85) 결과: 0.35~0.65 는 완전히 동일했다 — 평평한
+# 블록은 AC 에너지가 거의 0 이라 문턱을 조금만 올려도 다 걸러진다. 0.85 에서만
+# 문턱이 진짜 무늬가 있는 블록까지 파고들어 과하게 마스킹했고, 그 대가로 실제
+# 사진 실패가 1/11 → 4/11 로 늘었다. 그래서 동일 구간의 중앙값인 0.5 를 쓴다 —
+# 위아래 경계 모두에서 떨어져 있어 여유가 있다. site/wm.js 의 MASK_K 와 반드시
+# 같은 값이어야 한다 (달라지면 브라우저·데스크톱이 서로 다른 워터마크를 심는다).
+MASK_K = 0.5       # ||AC|| < MASK_K * scale 인 블록은 건너뛴다 (무차원)
+MASK_FLOOR = 0.35  # 그래도 활동도 상위 이 비율은 반드시 심는다 (평평한 사진 대비)
+MASK_READ = 0.10   # 추출: 절대 기준을 넘는 블록이 이만큼도 없을 때만 바닥으로 내린다
+
 
 def _dct_matrix(n: int = BLOCK) -> np.ndarray:
     """cv2.dct 와 동일한 정규 직교 DCT-II 행렬.  cv2.dct(X) == D @ X @ D.T"""
@@ -34,6 +49,27 @@ def _dct_matrix(n: int = BLOCK) -> np.ndarray:
 
 
 _D = _dct_matrix()
+
+
+def _ac_norm(dct: np.ndarray) -> np.ndarray:
+    """블록별 AC 노름 = √(전체 에너지 − DC²). 정규직교 DCT 라 블록 표준편차의 4배다."""
+    return np.sqrt(np.maximum(np.einsum("kij,kij->k", dct, dct) - dct[:, 0, 0] ** 2, 0))
+
+
+def _bar(ac: np.ndarray, scale: float, trip: float) -> float:
+    """마스킹 기준선. 절대 기준 MASK_K*scale 을 넘는 블록이 trip 비율에 못 미칠 때만
+    '상위 MASK_FLOOR 비율'까지 내린다.
+
+    삽입과 추출이 trip 만 다르다. 삽입은 trip=MASK_FLOOR — 무늬가 모자라면 바닥까지
+    내려서라도 심어야 하기 때문이다. 추출은 trip=MASK_READ 로 훨씬 낮다 — 추출에는
+    바닥이 필요 없고, 오히려 해가 된다. 크롭 조각이 하늘만 담고 있으면 그 조각의
+    분위수는 하늘 한복판에 떨어져, 인코더가 일부러 건너뛴 블록을 도로 세게 된다
+    (실측: 하늘 60% 사진의 정중앙 40% 크롭에서 이것 때문에 표가 묻혔다).
+    """
+    hard = MASK_K * scale
+    if not len(ac) or float(np.mean(ac >= hard)) >= trip:
+        return hard
+    return float(np.quantile(ac, 1.0 - MASK_FLOOR))
 
 
 def _period(n: int) -> tuple[int, int]:
@@ -110,6 +146,28 @@ class DwtDctSvd:
             yuv[:h, :w, ch] = np.clip(np.rint(restored), 0, 255)
         return cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR)
 
+    def _mask(self, dct: np.ndarray, used: np.ndarray, scale: float) -> np.ndarray:
+        """무늬가 없어 삽입을 숨길 수 없는 블록을 골라 뺀다 (지각 마스킹).
+
+        활동도는 DCT 의 AC 에너지로 잰다 — 어차피 삽입에 필요해서 이미 계산해 둔
+        값이라 공짜이고, 정규직교 DCT 라 블록 분산의 16배와 정확히 같은 양이다.
+        (지역 분산을 따로 구하는 것과 같은 수치를 얻으면서 연산이 늘지 않는다.)
+
+        기준을 scale 에 비례시키는 이유: 삽입이 만드는 픽셀 변화의 rms 는
+        Δs0/(4·2^level) 이고, AC 노름을 픽셀로 옮길 때도 같은 1/(4·2^level) 이
+        걸린다. 두 양의 비 ||AC||/scale 은 레벨과 강도에 무관한 무차원 수라,
+        태그 층(180/레벨2)과 문장 층(24/레벨1)에 같은 상수 하나로 통한다.
+
+        절대 기준만 쓰면 평평한 사진이 통째로 비어 검출이 불가능해진다. 그래서
+        활동도 상위 FLOOR 비율은 기준에 못 미쳐도 반드시 심는다 — 그 사진에서는
+        보이는 대가를 치르더라도 표식이 남는 쪽을 고른다.
+
+        추출(_read)도 같은 활동도를 쓴다. 받은 이미지에서 다시 계산하는 값이라
+        부가 정보가 아니고, 사이드카 형식도 그대로다.
+        """
+        ac = _ac_norm(dct)
+        return used & (ac >= _bar(ac[used], scale, MASK_FLOOR))
+
     def _embed(self, ca: np.ndarray, scale: float) -> None:
         b = self.block
         blocks, gh, gw = self._split(ca)
@@ -118,9 +176,15 @@ class DwtDctSvd:
         wanted = np.zeros(len(idx))
         wanted[used] = np.asarray(self.bits, float)[idx[used]]
 
-        u, s, vt = np.linalg.svd(_D @ blocks @ _D.T)
-        s0 = np.where(used, (s[:, 0] // scale + 0.25 + 0.5 * wanted) * scale, s[:, 0])
-        s[:, 0] = s0
+        dct = _D @ blocks @ _D.T
+        used = self._mask(dct, used, scale)
+        u, s, vt = np.linalg.svd(dct)
+        # 원래는 s0 가 있던 격자 칸 안의 점으로만 옮겼다 (s0 // scale). 그런데 같은 비트를
+        # 뜻하는 점은 scale 마다 하나씩 있으므로, 가장 가까운 것을 고르면 이동량이 최대
+        # scale → scale/2 로 줄어든다. 판독은 s0 % scale 만 보므로 여유는 한 톨도 줄지
+        # 않는다 (실측: 벤치마크 동일, 하늘 최대변화 9→6, PSNR 41.0→43.8dB).
+        off = 0.25 + 0.5 * wanted
+        s[:, 0] = np.where(used, (np.rint(s[:, 0] / scale - off) + off) * scale, s[:, 0])
         out = _D.T @ ((u * s[:, None, :]) @ vt) @ _D
         ca[: gh * b, : gw * b] = (
             out.reshape(gh, gw, b, b).swapaxes(1, 2).reshape(gh * b, gw * b)
@@ -141,6 +205,21 @@ class DwtDctSvd:
             out.append((np.ascontiguousarray(ca), self.scales[ch]))
         return out or None
 
+    def _read(self, blocks: np.ndarray, scale: float):
+        """블록별 (표, 가중치). 가중치는 삽입 때와 같은 활동도 판정이다.
+
+        건너뛴 블록도 다수결에 섞으면 흡수될 줄 알았는데 아니었다 — 삽입 비율이 f 면
+        표의 여유가 f 배로 줄고, 공격을 받으면 그 여유가 표본 잡음에 잡아먹힌다
+        (실측: f=0.35 에서 벤치마크 최악 44/48 → 32/48). 그래서 추출도 같은 기준으로
+        평탄한 블록을 빼고 센다. 받은 이미지에서 다시 계산하는 값이라 부가 정보가
+        아니고, 사이드카 형식도 그대로다. 공격으로 기준선이 어긋나도 손해는 완만하다 —
+        너무 낮게 잡히면 잡음 블록이 섞일 뿐이고, 너무 높게 잡히면 표본이 줄 뿐이다.
+        """
+        dct = _D @ blocks @ _D.T
+        s = np.linalg.svd(dct, compute_uv=False)[:, 0]
+        ac = _ac_norm(dct)
+        return ((s % scale) > scale * 0.5).astype(np.float64), (ac >= _bar(ac, scale, MASK_READ))
+
     def _cells_from(self, cas, my: int = 0, mx: int = 0) -> np.ndarray | None:
         """근사계수를 (my, mx) 만큼 밀어 블록을 자르고, 주기 격자 칸별 평균을 낸다."""
         acc = []
@@ -148,14 +227,17 @@ class DwtDctSvd:
             blocks, gh, gw = self._split(np.ascontiguousarray(ca[my:, mx:]))
             if gh < self.ph or gw < self.pw:
                 return None
-            s = np.linalg.svd(_D @ blocks @ _D.T, compute_uv=False)[:, 0]
-            score = ((s % scale) > scale * 0.5).astype(np.float64).reshape(gh, gw)
+            score, keep = self._read(blocks, scale)
             hh, ww = gh // self.ph * self.ph, gw // self.pw * self.pw
-            acc.append(
-                score[:hh, :ww]
-                .reshape(hh // self.ph, self.ph, ww // self.pw, self.pw)
-                .mean(axis=(0, 2))
-            )
+
+            def fold(v):
+                return (v.reshape(gh, gw)[:hh, :ww]
+                        .reshape(hh // self.ph, self.ph, ww // self.pw, self.pw)
+                        .sum(axis=(0, 2)))
+
+            w = fold(keep.astype(np.float64))
+            # 표본이 하나도 없는 칸은 0.5 (중립) — 어느 쪽으로도 기울이지 않는다.
+            acc.append(np.where(w > 0, fold(score * keep) / np.maximum(w, 1), 0.5))
         return np.mean(acc, axis=0)
 
     def _pick(self, cells: np.ndarray, shift=(0, 0)) -> np.ndarray:
@@ -184,13 +266,12 @@ class DwtDctSvd:
         acc = []
         for ca, scale in cas:
             blocks, gh, gw = self._split(ca)
-            s = np.linalg.svd(_D @ blocks @ _D.T, compute_uv=False)[:, 0]
-            score = ((s % scale) > scale * 0.5).astype(np.float64)
+            score, keep = self._read(blocks, scale)
             idx = self._index(gh, gw).ravel()
-            used = idx >= 0
+            used = (idx >= 0) & keep
             total = np.bincount(idx[used], weights=score[used], minlength=self.wm_len)
             count = np.bincount(idx[used], minlength=self.wm_len)
-            acc.append(total / np.maximum(count, 1))
+            acc.append(np.where(count > 0, total / np.maximum(count, 1), 0.5))
         return np.mean(acc, axis=0) * 255 > 127
 
     def detect(self, bgr: np.ndarray, target, deadline: float | None = None) -> dict:

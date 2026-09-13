@@ -3,6 +3,11 @@ import { BLOCK, dct4, idct4, topSingular, wavedec2, waverec2 } from './wm-core.j
 
 export const NBITS = 48, LEVEL = 2, SCALE = 180, TILE = [12, 16];
 export const MSG_LEVEL = 1, MSG_SCALE = 24, MSG_SAMPLES = 16, MSG_HEADER = 2, MSG_CRC = 4;
+// 지각 마스킹. dwtdctsvd.py 의 MASK_K / MASK_FLOOR 와 같은 값이어야 한다 —
+// 다르면 브라우저에서 보호한 사진과 데스크톱에서 보호한 사진이 서로 달라진다.
+// MASK_K=0.5 인 이유는 dwtdctsvd.py 의 주석 참고: 0.35~0.65 스윕 결과가 동일했고
+// 0.85 는 실제 사진 실패를 1/11→4/11 로 늘렸다 (진짜 무늬까지 마스킹했기 때문).
+export const MASK_K = 0.5, MASK_FLOOR = 0.35, MASK_READ = 0.10;
 const NCELL = TILE[0] * TILE[1];
 
 const sha256 = async (bytes) =>
@@ -58,18 +63,56 @@ const putBlock = (ca, cw, bi, bj, blk) => {
     for (let j = 0; j < BLOCK; j++) ca[(bi * BLOCK + i) * cw + bj * BLOCK + j] = blk[i * 4 + j];
 };
 
-/** 근사계수에 비트를 심는다 (양자화). idxMap 이 -1 인 블록은 손대지 않는다. */
+/** 블록의 AC 노름. DC(인덱스 0)를 뺀 에너지의 제곱근 = 활동도 척도. */
+const acNorm = (d) => {
+  let s = 0;
+  for (let i = 1; i < 16; i++) s += d[i] * d[i];
+  return Math.sqrt(s);
+};
+/** numpy.quantile 의 기본(선형 보간)과 같은 값. 두 구현의 기준선을 맞추기 위해서다. */
+function quantile(sorted, q) {
+  const pos = q * (sorted.length - 1), lo = Math.floor(pos), f = pos - lo;
+  return sorted[lo] + (sorted[Math.min(lo + 1, sorted.length - 1)] - sorted[lo]) * f;
+}
+/** 마스킹 기준선. 파이썬 dwtdctsvd._bar 와 같아야 한다 (act 는 오름차순 정렬됨). */
+function maskBar(act, scale, trip) {
+  const hard = MASK_K * scale;
+  if (!act.length) return hard;
+  let above = 0;
+  for (let i = act.length - 1; i >= 0 && act[i] >= hard; i--) above++;
+  return above / act.length >= trip ? hard : quantile(act, 1 - MASK_FLOOR);
+}
+
+/** 근사계수에 비트를 심는다 (양자화). idxMap 이 -1 인 블록은 손대지 않는다.
+ *
+ * 평탄한 블록도 건너뛴다 — 숨겨줄 무늬가 없어 격자로 보이기 때문이다.
+ * 파이썬 dwtdctsvd.DwtDctSvd._mask 와 같은 계산이어야 한다 (이유는 그쪽 주석에).
+ */
 function embedInto(ca, cw, ch, bits, idxMap, scale) {
   const gh = (ch / BLOCK) | 0, gw = (cw / BLOCK) | 0;
   const blk = new Float64Array(16);
+  // 1차: 후보 블록의 활동도를 모아 기준선을 정한다. 절대 기준만 쓰면 평평한 사진이
+  // 통째로 비어버리므로, 활동도 상위 MASK_FLOOR 비율은 기준에 못 미쳐도 심는다.
+  const act = [];
+  for (let bi = 0; bi < gh; bi++)
+    for (let bj = 0; bj < gw; bj++)
+      if (idxMap[bi * gw + bj] >= 0) act.push(acNorm(dct4(getBlock(ca, cw, bi, bj, blk))));
+  if (!act.length) return;
+  act.sort((a, b) => a - b);
+  const bar = maskBar(act, scale, MASK_FLOOR);
+
   for (let bi = 0; bi < gh; bi++)
     for (let bj = 0; bj < gw; bj++) {
       const want = idxMap[bi * gw + bj];
       if (want < 0) continue;
       getBlock(ca, cw, bi, bj, blk);
       const d = dct4(blk);
+      if (acNorm(d) < bar) continue;
       const { s0, u0, v0 } = topSingular(d);
-      const target = (Math.floor(s0 / scale) + 0.25 + 0.5 * bits[want]) * scale;
+      // 같은 비트를 뜻하는 격자점은 scale 마다 하나씩 있다. 가장 가까운 것을 고르면
+      // 이동량이 반으로 줄지만 판독은 s0 % scale 만 보므로 여유는 그대로다.
+      const off = 0.25 + 0.5 * bits[want];
+      const target = (Math.round(s0 / scale - off) + off) * scale;
       const delta = target - s0;
       const d2 = new Float64Array(16);
       for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++)
@@ -78,21 +121,34 @@ function embedInto(ca, cw, ch, bits, idxMap, scale) {
     }
 }
 
-/** 근사계수에서 비트별 평균 점수를 읽는다. */
+/** 근사계수에서 비트별 평균 점수를 읽는다.
+ *
+ * 삽입 때 건너뛴 평탄한 블록은 여기서도 뺀다 — 섞으면 표의 여유가 삽입 비율만큼
+ * 줄어 공격을 못 견딘다. 판단은 받은 이미지에서 다시 계산하므로 부가 정보가 아니다.
+ * 파이썬 dwtdctsvd 의 _read 와 같아야 한다 (기준선 모집단도 '모든 블록'으로 같다).
+ */
 function readVotes(ca, cw, ch, idxMap, scale, n) {
   const gh = (ch / BLOCK) | 0, gw = (cw / BLOCK) | 0;
   const tot = new Float64Array(n), cnt = new Float64Array(n), blk = new Float64Array(16);
+  const act = [];
+  for (let bi = 0; bi < gh; bi++)
+    for (let bj = 0; bj < gw; bj++) act.push(acNorm(dct4(getBlock(ca, cw, bi, bj, blk))));
+  act.sort((a, b) => a - b);
+  const bar = maskBar(act, scale, MASK_READ);
   for (let bi = 0; bi < gh; bi++)
     for (let bj = 0; bj < gw; bj++) {
       const k = idxMap[bi * gw + bj];
       if (k < 0) continue;
       getBlock(ca, cw, bi, bj, blk);
-      const { s0 } = topSingular(dct4(blk));
+      const d = dct4(blk);
+      if (acNorm(d) < bar) continue;
+      const { s0 } = topSingular(d);
       tot[k] += ((s0 % scale) > scale * 0.5) ? 1 : 0;
       cnt[k] += 1;
     }
+  // 표본이 없는 비트는 0.5 (중립).
   const out = new Float64Array(n);
-  for (let i = 0; i < n; i++) out[i] = cnt[i] ? tot[i] / cnt[i] : 0;
+  for (let i = 0; i < n; i++) out[i] = cnt[i] ? tot[i] / cnt[i] : 0.5;
   return out;
 }
 

@@ -182,7 +182,7 @@
 <script type="module">
 import { createFacePanel } from '/lib/face-ui.js';
 const $ = s => document.querySelector(s);
-let ST = {}, pImg = null, vImg = null, sCar = null, DEAD = false, SIDECAR_SAVED = false;
+let ST = {}, pImg = null, vImg = null, sCar = null, DEAD = false, SIDECAR_SAVED = false, facesBusy = false;
 
 // 사이드카를 안 받고 창을 닫으려 하면 잡는다. 덮어쓰기를 당했을 때 원작자를 증명하는
 // 유일한 파일이라, 안내문 한 줄로는 부족하다.
@@ -270,7 +270,7 @@ const syncBtns = () => {
   const kl = $('#pkeyless') && $('#pkeyless').checked;
   // 키 없이 심을 때는 문장이 있어야 심을 게 생긴다
   const ready = pImg && (kl ? msgBytes() > 0 : ST.has_key);
-  $('#pgo').disabled = DEAD || !ready || tooLong;
+  $('#pgo').disabled = DEAD || !ready || tooLong || facesBusy;
   $('#pbench').disabled = DEAD || !(pImg && ST.has_key);
   $('#vgo').disabled = DEAD || !vImg;   // 문장은 키 없이도 읽히므로 사진만 있으면 된다
   if ($('#setupGo')) $('#setupGo').disabled = DEAD || $('#setupGo').disabled;
@@ -285,10 +285,11 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
 // ── 보호 ──────────────────────────────────────────
 const facePanel = createFacePanel($('#faces'));
 dropzone($('#pdrop'), $('#pfile'), f => {
-  pImg = f; syncBtns(); askCapacity();
+  pImg = f; facesBusy = true; syncBtns(); askCapacity();
   createImageBitmap(f)
     .then(b => { show($('#facesCard'), true); return facePanel.show(b); })
-    .catch(e => console.warn('얼굴 패널', e));
+    .catch(e => console.warn('얼굴 패널', e))
+    .finally(() => { facesBusy = false; syncBtns(); });
 });
 
 // ── 문장 ──────────────────────────────────────────
@@ -354,6 +355,7 @@ async function runProtect(overwrite){
       <div class="kv"><span>해상도</span><span>${r.size[0]} × ${r.size[1]}</span></div>
       <div class="kv"><span>화질 (PSNR)</span><span>${r.psnr} dB ${r.psnr>38?'· 매우 좋음':'· 양호'}</span></div>
       ${r.sidecar ? `<div class="kv"><span>심어진 태그</span><span>${r.sidecar.claim.pub.slice(0,24)}…</span></div>` : ''}
+      ${r.faces_masked ? `<div class="kv"><span>가린 얼굴</span><span>${r.faces_masked}명 — 되돌릴 수 없습니다</span></div>` : ''}
       ${r.message ? `<div class="kv"><span>심어진 문장</span><span>${r.message.replace(/</g,'&lt;')}</span></div>` : ''}
       ${r.no_ai ? `<div class="kv"><span>AI 학습 거부</span><span>선언 포함 (IPTC/PLUS)</span></div>` : ''}
       ${r.keyless ? `

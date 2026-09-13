@@ -181,15 +181,20 @@ function validPoly(poly) {
 // watermark.py 의 _mask_region 과 계약이 같다: 상자(x/y/w/h)를 먼저 보고, 넓이가
 // 0이면(ax<0.5 또는 ay<0.5) 그때만 정말 가릴 게 없다고 보고 null 을 돌려준다.
 // 상자에 넓이가 있으면 poly 를 시도하되, poly 가 없거나 망가졌거나 상자 타원
-// 넓이의 5% 도 못 채우면(뭉개진 좌표 등) 조용히 상자 타원으로 되돌아간다 —
-// 얼굴을 건너뛰는 실패는 이 기능에서 제일 나쁜 결과다.
+// 넓이의 5% 도 못 채우면(뭉개진 좌표 등) 조용히 상자로 되돌아간다 — 얼굴을
+// 건너뛰는 실패는 이 기능에서 제일 나쁜 결과다.
+//
+// f.manual(사용자가 직접 끈 박스)이면 이 되돌아갈 상자가 타원이 아니라 직사각형
+// 전체다 — 자동 탐지 박스는 여유(GROW_BOX)를 두고 타원으로 깎아도 얼굴을 덮지만,
+// 사용자가 그린 박스는 "그린 그대로" 써야 한다는 설계와 달리 내접 타원(π/4 ≈ 78.5%)
+// 으로 칠하면 네 귀퉁이(21.5%)가 원본 그대로 남는다.
 function regionMask(w, h, f) {
   if (f.x == null || f.y == null || f.w == null || f.h == null) return null;  // 상자 정보조차 없다
   const grow = f.grow ?? 1.0;
   const cxp = (f.x + f.w / 2) * w, cyp = (f.y + f.h / 2) * h;
   const ax = f.w * w * grow / 2, ay = f.h * h * grow / 2;
   if (ax < 0.5 || ay < 0.5) return null;   // 상자 자체에 넓이가 없다 — 이때만 정말 가릴 게 없다
-  const boxArea = Math.PI * ax * ay;
+  const boxArea = f.manual ? 4 * ax * ay : Math.PI * ax * ay;
 
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
@@ -219,9 +224,13 @@ function regionMask(w, h, f) {
 
   if (!painted) {
     cx.clearRect(0, 0, w, h);
-    cx.beginPath();
-    cx.ellipse(cxp, cyp, ax, ay, 0, 0, Math.PI * 2);
-    cx.fill();
+    if (f.manual) {
+      cx.fillRect(cxp - ax, cyp - ay, ax * 2, ay * 2);   // 그린 그대로 — 귀퉁이도 덮는다
+    } else {
+      cx.beginPath();
+      cx.ellipse(cxp, cyp, ax, ay, 0, 0, Math.PI * 2);
+      cx.fill();
+    }
   }
 
   const a = cx.getImageData(0, 0, w, h).data;
@@ -329,7 +338,11 @@ function fillMosaic(img, w, inside, box) {
 
 // f.mode 가 MASK_MOSAIC 이면 모자이크로, 그 외(기본 포함)에는 solid 로 채운다.
 // 모르는 값은 조용히 solid 로 취급한다. 아무것도 안 칠하는 실패를 만들지 않는다.
-export function maskFaces(ctx, w, h, faces) {
+//
+// applied 를 주면 실제로 칠해진 얼굴만 그 배열에 담는다 — faces_masked 를 요청
+// 수가 아니라 실제로 가린 수로 세려면 이게 필요하다(넓이 0/이미지 밖인 박스는
+// regionMask 가 null 을 돌려주고 건너뛴다).
+export function maskFaces(ctx, w, h, faces, applied) {
   if (!faces || !faces.length) return;
   const image = ctx.getImageData(0, 0, w, h);
   for (const f of faces) {
@@ -337,6 +350,7 @@ export function maskFaces(ctx, w, h, faces) {
     if (!r) continue;
     if (f.mode === MASK_MOSAIC) fillMosaic(image.data, w, r.inside, r.box);
     else fillSolid(image.data, w, r.inside, r.box);
+    if (applied) applied.push(f);
   }
   ctx.putImageData(image, 0, 0);
 }

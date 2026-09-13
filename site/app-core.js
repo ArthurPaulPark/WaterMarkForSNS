@@ -212,13 +212,20 @@ export async function protect(file, platform, { message = '', noAi = true, keyle
 
   // 가리기는 워터마크보다 먼저다. 순서가 반대면 가리기가 그 영역의 워터마크를 부순다.
   // 지각 해시도 이 뒤라야 발행본과 맞고, 가려지지 않은 원본의 지문이 남지 않는다.
-  if (faces.length) maskFaces(ctx, w, h, faces);
+  // appliedFaces 는 요청한 얼굴이 아니라 실제로 칠해진 얼굴만 담는다 — 넓이 0 이거나
+  // 이미지 밖인 박스가 섞여도 faces_masked 가 부풀려지지 않는다.
+  const appliedFaces = [];
+  if (faces.length) maskFaces(ctx, w, h, faces, appliedFaces);
 
   const key = keyless ? null : await loadKey();
   if (!key && !keyless) throw new Error('먼저 도장을 만들어 주세요');
   if (!key && !message) throw new Error('도장 없이 심으려면 문장이 필요합니다');
 
   const img = getPixels(ctx, w, h);
+  // PSNR 기준: 가리기까지는 끝났지만 워터마크는 아직 없는 픽셀. 여기서 복사해 두지
+  // 않으면 나중에 다시 가려서 비교하게 되는데, 그러면 매번 새로 뽑는 잡음이 두 번
+  // 잡혀 화질이 실제보다 나쁘게 나온다 — 워터마크가 준 손상만 재려면 이 스냅샷이 필요하다.
+  const maskedRgba = img.data.slice();
   const { Y, U, V } = W.rgbaToYuv(img.data, w, h);
   const before = W.perceptualHash(Y, w, h);
   const origBytes = new Uint8Array(await file.arrayBuffer());
@@ -236,7 +243,7 @@ export async function protect(file, platform, { message = '', noAi = true, keyle
   let jpeg = new Uint8Array(await (await toJpeg(canvas)).arrayBuffer());
   if (noAi) jpeg = addDeclaration(jpeg);
 
-  const psnr = await measurePsnr(bmp, spec, jpeg, faces);
+  const psnr = await measurePsnr(maskedRgba, jpeg);
   let sidecar = null;
   if (key) {
     const claim = {
@@ -245,9 +252,9 @@ export async function protect(file, platform, { message = '', noAi = true, keyle
       phash: before,
       // 얼굴을 가렸으면 원본 파일 해시를 넣지 않는다. 원본을 가진 사람이 발행본과의
       // 연결을 증명할 수 있어, 초상권을 지키려고 가린 사진의 공개 증명서에 남길 이유가 없다.
-      sha256_original: faces.length ? null : await sha256Hex(origBytes),
+      sha256_original: appliedFaces.length ? null : await sha256Hex(origBytes),
       sha256_protected: await sha256Hex(jpeg),
-      faces_masked: faces.length,
+      faces_masked: appliedFaces.length,
       created: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
     };
     const sig = new Uint8Array(await crypto.subtle.sign({ name: 'Ed25519' }, key.priv, canonical(claim)));
@@ -256,17 +263,15 @@ export async function protect(file, platform, { message = '', noAi = true, keyle
   return { jpeg, sidecar, size: [w, h], capacity, psnr, message, noAi, keyless: !key };
 }
 
-async function measurePsnr(bmp, spec, jpeg, faces = []) {
-  const a = fitCanvas(bmp, spec.maxW, spec.maxH);
-  // 가리기가 아니라 워터마크가 준 손상을 재는 값이다. 기준도 가린 뒤여야 한다.
-  if (faces.length) maskFaces(a.ctx, a.w, a.h, faces);
-  const pa = getPixels(a.ctx, a.w, a.h).data;
+async function measurePsnr(basePixels, jpeg) {
+  // 가리기가 아니라 워터마크가 준 손상만 재는 값이다. basePixels 는 가리기까지
+  // 끝난 뒤(워터마크 삽입 전) 픽셀이므로 다시 가릴 필요도, 새 잡음을 뽑을 필요도 없다.
   const bmp2 = await createImageBitmap(new Blob([jpeg], { type: 'image/jpeg' }));
   const b = fitCanvas(bmp2, 0, 0);
   const pb = getPixels(b.ctx, b.w, b.h).data;
   let se = 0, n = 0;
-  for (let i = 0; i < pa.length; i += 4)
-    for (let k = 0; k < 3; k++) { const d = pa[i + k] - pb[i + k]; se += d * d; n++; }
+  for (let i = 0; i < basePixels.length; i += 4)
+    for (let k = 0; k < 3; k++) { const d = basePixels[i + k] - pb[i + k]; se += d * d; n++; }
   return Math.round(10 * Math.log10(255 * 255 / (se / n)) * 10) / 10;
 }
 

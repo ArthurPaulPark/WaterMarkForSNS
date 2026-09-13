@@ -148,6 +148,7 @@ export function createFacePanel(host) {
       return faces.filter((f) => f.on !== false).map((f) => ({
         x: f.x, y: f.y, w: f.w, h: f.h,
         ...(f.poly ? { poly: f.poly } : {}),
+        ...(f.manual ? { manual: true } : {}),
         grow: f.grow ?? F.GROW_MANUAL,
         mode,
       }));

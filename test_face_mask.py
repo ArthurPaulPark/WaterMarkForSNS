@@ -43,9 +43,11 @@ def test_hard_edge():
     #  중앙값이 어느 쪽인지 애매하면 안 된다 — 어두운 쪽이 확실히 우세하게 둔다
     face = {"x": .30, "y": .30, "w": .40, "h": .40, "grow": 1.0}
     out = wm.mask_faces(src.copy(), [face], rng=np.random.default_rng(0))
-    # 가린 색과 바깥 색 사이의 중간값이 넓게 깔리면 페더링이 있다는 뜻이다
+    # 가린 색과 바깥 색 사이의 중간값이 하나라도 있으면 페더링이 있다는 뜻이다.
+    # 예전엔 out.size*0.02(9,600화소)까지 봐줬는데, 실측 중간값 화소는 0개라 2px
+    # 페더링(약 3,000화소)이 들어와도 그 문턱을 통과했다 — 시험이 이름값을 못 했다.
     mid = ((out > 60) & (out < 180)).sum()
-    assert mid < out.size * 0.02, f"경계가 번졌다 — 중간값 화소 {mid}개"
+    assert mid == 0, f"경계가 번졌다 — 중간값 화소 {mid}개"
 
 
 def test_edges_and_degenerate():
@@ -210,15 +212,38 @@ def test_reidentification_is_chance_level():
 
 
 def test_remaining_samples_are_counted():
-    """가린 영역에 남은 독립 표본 수를 세어 기록한다.
+    """가린 영역에 남은 독립 표본 수를 세어 기록하고, 실제로 그 안에 갇히는지 잰다.
 
-    복원 가능성은 이 숫자가 결정한다. 눈에 보이게 남겨둔다. mosaic 쪽은 통과선이
-    없다 — 정보용으로만 찍는다(위 재식별 시험 참고).
+    복원 가능성은 이 숫자가 결정한다. mosaic 쪽은 통과선이 없다 — 정보용으로만
+    찍는다(위 재식별 시험 참고).
+
+    예전 판은 `solid_samples = 3` 을 상수로 박아두고 `assert solid_samples == 3` 만
+    했다 — `_fill_solid` 를 어떻게 고쳐도(중앙값 대신 평균을 쓰든, 양자화를
+    빼먹든, `SOLID_LEVELS` 를 256 으로 올리든) 통과하는 항진명제였다. 여기서는
+    실제로 `_fill_solid` 를 돌려 채널마다 몇 가지 기준색이 나오는지 재고, 그 값이
+    `SOLID_LEVELS` 를 넘지 않는지 확인한다 — 양자화 구현이 깨지면 이 시험이 잡는다.
     """
-    solid_samples = 3                                   # 양자화된 색 세 개
+    step = 256.0 / wm.SOLID_LEVELS
+    rng = np.random.default_rng(11)
+    buckets = set()
+    for level in range(0, 256, 3):                     # 채널값 전 구간을 촘촘히 훑는다
+        patch = np.full((2, 2, 3), level, np.uint8)
+        inside = np.ones((2, 2), bool)
+        out = wm._fill_solid(patch, inside, rng)
+        # 기준색은 항상 칸 한가운데(k*step + step/2)에 있고 잡음 폭(SOLID_NOISE)이
+        # 칸 절반보다 작으므로, floor(값/step) 은 잡음에 흔들리지 않고 원래 칸
+        # 번호를 그대로 복원한다 — round 를 쓰면 기준색이 반올림 경계 바로 위에
+        # 앉아 있어 잡음의 부호에 따라 칸이 갈린다(측정 오차가 생긴다).
+        for c in range(3):
+            buckets.add(int(out[0, 0, c] // step))
+    solid_samples = 3                                   # 양자화된 색 세 개(RGB 한 벌)
     mosaic_samples = wm.MOSAIC_BLOCKS ** 2 * 3           # 블록마다 색 세 개
-    print(f"    남은 표본 — 단색 {solid_samples}개, 모자이크 {mosaic_samples}개")
-    assert solid_samples == 3
+    print(f"    남은 표본 — 단색 {solid_samples}개, 모자이크 {mosaic_samples}개"
+          f" (관측된 기준색 종류: {len(buckets)}/{wm.SOLID_LEVELS})")
+    assert len(buckets) <= wm.SOLID_LEVELS, (
+        f"단색 채우기가 SOLID_LEVELS({wm.SOLID_LEVELS})보다 많은 기준색을 실제로 "
+        f"낸다 — 관측 {len(buckets)}가지. _fill_solid 의 양자화가 깨졌다."
+    )
 
 
 def test_protect_masks_before_watermark():

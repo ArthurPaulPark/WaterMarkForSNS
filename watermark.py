@@ -295,9 +295,14 @@ def _fit(img: np.ndarray, max_w: int | None, max_h: int | None) -> np.ndarray:
 
 
 def _box_mask(f: dict, w: int, h: int):
-    """x/y/w/h 박스를 타원으로 칠한 마스크. 넓이가 0이면 None.
+    """x/y/w/h 박스를 칠한 마스크. 넓이가 0이면 None.
 
     face dict 에는 항상 이 박스가 있다 — poly 가 망가져도 되돌아갈 곳이다.
+
+    f["manual"] 이 참이면(사용자가 직접 끈 박스) 타원이 아니라 박스 전체를
+    직사각형으로 칠한다 — 설계는 "그린 그대로" 라고 적어 두었는데, 내접 타원
+    (넓이 π/4 ≈ 78.5%)으로 칠하면 사용자가 칠한 네 귀퉁이(21.5%)가 원본 그대로
+    남는다. 자동 탐지 박스는 그대로 타원을 쓴다.
     """
     grow = float(f.get("grow", 1.0))
     cx = (float(f["x"]) + float(f["w"]) / 2) * w
@@ -307,8 +312,13 @@ def _box_mask(f: dict, w: int, h: int):
     if ax < 0.5 or ay < 0.5:
         return None
     canvas = np.zeros((h, w), np.uint8)
-    cv2.ellipse(canvas, (int(round(cx)), int(round(cy))),
-                (int(round(ax)), int(round(ay))), 0, 0, 360, 1, -1)
+    if f.get("manual"):
+        x0, y0 = int(round(cx - ax)), int(round(cy - ay))
+        x1, y1 = int(round(cx + ax)), int(round(cy + ay))
+        cv2.rectangle(canvas, (x0, y0), (x1 - 1, y1 - 1), 1, -1)
+    else:
+        cv2.ellipse(canvas, (int(round(cx)), int(round(cy))),
+                    (int(round(ax)), int(round(ay))), 0, 0, 360, 1, -1)
     return canvas
 
 
@@ -378,7 +388,11 @@ def _fill_mosaic(patch: np.ndarray, rng) -> np.ndarray:
     그 위에 잡음을 얹을 뿐이다. 재식별 측정치는 이 파일 위쪽 주석 참고.
     """
     ph, pw = patch.shape[:2]
-    b = max(8, int(round(pw / MOSAIC_BLOCKS)))
+    # int(round(...)) 는 파이썬 내장 round() 가 짝수 쪽으로 반올림하는 반면
+    # site/face.js 의 Math.round 는 항상 올림이라, pw/4 가 정확히 x.5 일 때
+    # (pw=34,42,50 …) 블록 크기가 갈렸다(I5). math.floor(x+0.5) 는 JS 와 같은
+    # 규칙이라 이걸로 맞춘다 — 한쪽만 고치면 다시 갈린다.
+    b = max(8, int(math.floor(pw / MOSAIC_BLOCKS + 0.5)))
     sw, sh = max(1, -(-pw // b)), max(1, -(-ph // b))
     step = 256.0 / MOSAIC_LEVELS
     out = patch.copy()
@@ -393,7 +407,7 @@ def _fill_mosaic(patch: np.ndarray, rng) -> np.ndarray:
     return out
 
 
-def mask_faces(img: np.ndarray, faces: list[dict], rng=None) -> np.ndarray:
+def mask_faces(img: np.ndarray, faces: list[dict], rng=None, applied: list | None = None) -> np.ndarray:
     """얼굴 영역을 되돌릴 수 없게 지운다. img(BGR)를 제자리에서 고치고 돌려준다.
 
     faces 의 좌표는 0~1 정규화다. 640px 축소본에서 찾은 것을 여기서 칠할 수 있고,
@@ -407,6 +421,9 @@ def mask_faces(img: np.ndarray, faces: list[dict], rng=None) -> np.ndarray:
     가린다 — 조용히 건너뛰는 것이 이 기능에서 제일 나쁜 실패이기 때문이다.
 
     난수는 저장하지 않는다. 같은 사진을 두 번 처리하면 다른 결과가 나온다.
+
+    applied 를 주면 실제로 칠해진 얼굴만 그 리스트에 담는다 — faces_masked 를
+    요청한 얼굴 수가 아니라 실제로 가린 얼굴 수로 세려면 이게 필요하다.
     """
     if not faces:
         return img
@@ -427,6 +444,8 @@ def mask_faces(img: np.ndarray, faces: list[dict], rng=None) -> np.ndarray:
         else:
             filled = _fill_solid(patch, sub, rng)
         patch[sub] = filled[sub]
+        if applied is not None:
+            applied.append(f)
     return img
 
 
@@ -456,9 +475,12 @@ def protect(image_bytes: bytes, platform: str, key: Ed25519PrivateKey | None = N
 
     # 가리기는 워터마크보다 먼저다. 순서가 반대면 가리기가 그 영역의 워터마크를 부순다.
     # 지각 해시도 이 뒤에 계산해야 발행본과 맞고, 가려지지 않은 원본의 지문이 남지 않는다.
-    n_masked = len(faces or [])
+    # n_masked 는 요청한 얼굴 수가 아니라 실제로 칠해진 얼굴 수다 — 넓이 0 이거나
+    # 이미지 밖인 박스가 섞여도 사이드카의 faces_masked 가 부풀려지지 않는다.
+    applied_faces: list = []
     if faces:
-        mask_faces(base, faces)
+        mask_faces(base, faces, applied=applied_faces)
+    n_masked = len(applied_faces)
 
     pub = pub_hex(key.public_key()) if key else None
     # 삽입은 양자화라 이전 값을 지운다. 덮어쓰기 전에 기존 워터마크를 확인한다.
@@ -506,6 +528,7 @@ def protect(image_bytes: bytes, platform: str, key: Ed25519PrivateKey | None = N
             "capacity": capacity,
             "already_marked": already,
             "no_ai": no_ai,
+            "faces_masked": n_masked,
         }
 
     claim = {
@@ -536,6 +559,7 @@ def protect(image_bytes: bytes, platform: str, key: Ed25519PrivateKey | None = N
         "capacity": capacity,
         "already_marked": already,
         "no_ai": no_ai,
+        "faces_masked": n_masked,
     }
 
 

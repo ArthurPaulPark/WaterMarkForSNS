@@ -83,7 +83,7 @@ def main() -> None:
         # --- 지각 마스킹: 평평한 곳에 격자를 남기지 않는다 ---
         # 하늘·벽처럼 매끈한 영역에는 양자화 오프셋을 가려줄 무늬가 없어서, 그냥 심으면
         # 블록 주기(4px)의 점 격자가 눈에 보인다. dwtdctsvd 의 마스킹을 빼면 매끈한
-        # 절반의 최대 변화가 2 에서 9 로 뛰면서 이 검사가 바로 깨진다.
+        # 절반의 최대 변화가 0 에서 6 으로 뛰면서 이 검사가 바로 깨진다(실측).
         grad = gradient_image()
         gm = wm._codec(pub).encode(grad)
         gd = np.abs(gm.astype(int) - grad.astype(int)).max(axis=2)

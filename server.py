@@ -186,7 +186,7 @@ async def protect(file: UploadFile, platform: str = Form(...), passphrase: str =
         "capacity": out["capacity"],
         "message": message.strip(),
         "already_marked": out["already_marked"],
-        "faces_masked": len(face_list),
+        "faces_masked": out["faces_masked"],
     }
 
 

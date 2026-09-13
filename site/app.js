@@ -8,7 +8,7 @@ const err = (el, m) => { el.textContent = m || ''; show(el, !!m); };
 const esc = (s) => s.replace(/[<&]/g, (c) => ({ '<': '&lt;', '&': '&amp;' }[c]));
 const fmt = (b) => (b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.round(b / 1024) + ' KB');
 
-let pImg = null, vImg = null, sCar = null, CAP = null, KEY = null, ED = true;
+let pImg = null, vImg = null, sCar = null, CAP = null, KEY = null, ED = true, facesBusy = false;
 
 function dropzone(zone, input, onPick) {
   zone.onclick = () => input.click();
@@ -73,7 +73,7 @@ const msgBytes = () => new TextEncoder().encode($('#pmsg').value.trim()).length;
 function sync() {
   const kl = $('#pkeyless').checked || !ED;
   const tooLong = CAP !== null && msgBytes() > CAP;
-  $('#pgo').disabled = !pImg || tooLong || (kl ? msgBytes() === 0 : !KEY);
+  $('#pgo').disabled = !pImg || tooLong || facesBusy || (kl ? msgBytes() === 0 : !KEY);
   $('#vgo').disabled = !vImg;
 }
 function showCap() {
@@ -101,9 +101,13 @@ async function askCap() {
 }
 const facePanel = createFacePanel($('#faces'));
 dropzone($('#pdrop'), $('#pfile'), async (f) => {
-  pImg = f; sync(); askCap();
-  try { await facePanel.show(await A.loadImage(f)); show($('#facesCard'), true); }
-  catch (e) { console.warn('얼굴 패널', e); }   // 패널이 죽어도 보호하기는 살아야 한다
+  pImg = f; facesBusy = true; sync(); askCap();
+  try {
+    const bmp = await A.loadImage(f);
+    show($('#facesCard'), true);   // 탐지가 끝나기 전에도 패널부터 보인다 — "찾는 중" 상태로
+    await facePanel.show(bmp);
+  } catch (e) { console.warn('얼굴 패널', e); }   // 패널이 죽어도 보호하기는 살아야 한다
+  finally { facesBusy = false; sync(); }
 });
 dropzone($('#vdrop'), $('#vfile'), (f) => { vImg = f; sync(); });
 dropzone($('#sdrop'), $('#sfile'), async (f) => { try { sCar = JSON.parse(await f.text()); } catch { sCar = null; } });

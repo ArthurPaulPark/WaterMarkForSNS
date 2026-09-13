@@ -40,10 +40,10 @@ Instagram 1080px, bits recovered out of 48. The right column is the quality of t
 | Denoising (removal attempt) | 45/48 | 38 dB |
 | Brightness / contrast | 48/48 | 18 dB |
 | Someone overwrites it | 41–44/48 | — |
-| Crop **and** colour-grade together | lost | 13 dB |
+| Crop **and** colour-grade together | lost | 15.7 dB |
 | AI regeneration (img2img) | lost | — |
 
-Embedding costs about 40 dB PSNR (SSIM 0.96–0.998) — not perceptible.
+Embedding costs about 46–47 dB PSNR (SSIM 0.96–0.998) — not perceptible.
 
 ### Perceptual masking
 
@@ -52,7 +52,10 @@ value to a lattice, and a flat block has no texture to hide that snap behind. Bl
 whose AC energy is below a threshold (`MASK_K = 0.5` of the quantization step) are
 skipped instead of watermarked, with a floor so a fully flat photo still gets some
 signal. This removes the grid completely (smooth-region max pixel change 9 → 0 on a
-gradient test image) and raises PSNR on smooth content (40.7 → 46.2 dB).
+gradient test image). Masking's own share of that is 6 → 0 (43.4 → 46.1 dB PSNR on
+smooth content) — the rest, 9 → 6, came from a separate fix that landed in the same
+change: snapping to the *nearest* quantisation lattice point instead of always
+rounding down.
 
 The price: on a real photograph, masking increases attack failures from 1 to 2 out of
 11 — the watermark is now lost on **centre-crop** and **crop-plus-colour-adjustment**,
@@ -255,12 +258,13 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
 | 구성 | PSNR |
 |---|---|
-| 태그만 | 40.9dB |
-| 태그 + 문장 | 39.9dB |
-| 키 없이 문장만 | 45.8dB |
+| 태그만 | 47.2dB |
+| 태그 + 문장 | 45.9dB |
+| 키 없이 문장만 | 49.2dB |
 
-SSIM 은 0.96~0.998, 매끈한 하늘 기준 픽셀 차이는 평균 2.05·최대 12(256단계 중)이다.
-32px 블록 격자 얼룩이 생기는지 따로 확인했으나 블록별 편차가 오히려 더 작아 격자는 생기지 않았다.
+SSIM 은 0.96~0.998다. 32px 블록 격자 얼룩은 지각 마스킹이 없으면 매끈한 영역에 그대로
+보인다(아래 절 참고) — 마스킹을 켠 지금은 매끈한 영역의 픽셀 차이가 평균·최대 모두
+0으로 사라져 격자도 함께 사라진다.
 
 ### 지각 마스킹 — 격자를 없애는 대가
 
@@ -268,8 +272,10 @@ SSIM 은 0.96~0.998, 매끈한 하늘 기준 픽셀 차이는 평균 2.05·최�
 격자점으로 스냅하는데, 평평한 블록에는 그 스냅을 가려줄 무늬가 없기 때문이다. AC
 에너지(양자화 간격 기준 `MASK_K = 0.5` 미만)가 부족한 블록은 심지 않고 건너뛴다 —
 다만 사진 전체가 평평해도 최소한의 신호는 남도록 바닥(`MASK_FLOOR`)을 둔다. 이걸로
-그라디언트 테스트 이미지의 매끈한 영역 최대 픽셀 변화가 9 → 0 으로 사라지고, 매끈한
-영역 PSNR 은 40.7 → 46.2dB 로 올라간다.
+그라디언트 테스트 이미지의 매끈한 영역 최대 픽셀 변화가 9 → 0 으로 사라진다. 이 중
+마스킹 자신의 몫은 6 → 0(매끈한 영역 PSNR 43.4 → 46.1dB)이고, 나머지 9 → 6 은 같은
+변경에 함께 들어간 별개의 수정 — 양자화 격자점 중 아무 데나가 아니라 **가장 가까운**
+점으로 옮기게 한 것 — 이 낸 몫이다.
 
 대가: 실제 사진 한 장 기준으로 11개 공격 중 실패가 1개 → 2개로 늘었다 — 이제
 **정중앙 크롭**과 **크롭+밝기/대비 조작**에서 워터마크를 잃는다 (마스킹 전에는

@@ -41,13 +41,15 @@
 
 - [ ] **Step 1: 파일을 받아 반입한다**
 
-`@vladmandic/face-api@1.7.15` (MIT, face-api.js 의 유지보수 포크) 를 쓴다.
+`@vladmandic/face-api` (MIT, face-api.js 의 유지보수 포크) 를 쓴다. 저장소의 `master`
+브랜치에서 그대로 받는다 — 릴리스 태그로 고정하지 않으므로 버전 번호가 아니라
+Step 2 에서 남기는 파일 해시가 조용한 교체를 잡아내는 유일한 보증이다.
 
 ```bash
 mkdir -p site/vendor/models
 cd site/vendor
 curl -fsSL -o face-api.esm.js \
-  https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/dist/face-api.esm.js
+  https://raw.githubusercontent.com/vladmandic/face-api/master/dist/face-api.esm.js
 cd models
 for f in tiny_face_detector_model-weights_manifest.json tiny_face_detector_model.bin \
          face_landmark_68_tiny_model-weights_manifest.json face_landmark_68_tiny_model.bin; do
@@ -76,12 +78,14 @@ shasum -a 256 site/vendor/face-api.esm.js site/vendor/models/*
 
 ```
 face-api.js — 얼굴 탐지
-  site/vendor/ 아래 파일들은 @vladmandic/face-api 1.7.15 에서 가져왔다.
+  site/vendor/ 아래 파일들은 @vladmandic/face-api 저장소의 master 브랜치에서 가져왔다
+  (릴리스 태그로 고정한 것이 아니다).
   https://github.com/vladmandic/face-api  (MIT)
   원본: face-api.js by Vincent Mühler  https://github.com/justadudewhohacks/face-api.js  (MIT)
   모델 가중치도 같은 저장소·같은 라이선스다.
 
-  버전을 고정하고 해시를 남긴다. 조용히 바뀌면 알아챌 수 있어야 한다.
+  태그가 아니라서 버전 번호로는 다시 받아도 같은 내용이 온다는 보장이 없다. 대신
+  파일 해시를 여기 남긴다 — 조용히 바뀌면 버전 번호가 아니라 이 해시로 알아챈다.
   <여기에 Step 2 의 shasum 출력을 붙인다>
 ```
 

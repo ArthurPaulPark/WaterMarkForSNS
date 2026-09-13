@@ -1,6 +1,7 @@
 import * as A from './app-core.js';
 import * as W from './wm.js';
 import { createFacePanel } from './face-ui.js';
+import * as FD from './face.js';
 
 const $ = (s) => document.querySelector(s);
 const show = (el, on) => el.classList.toggle('hide', !on);
@@ -39,7 +40,37 @@ async function showDiag() {
     row('보안 연결 (HTTPS)', c.secure ? '예' : '아니오', c.secure) +
     row('Ed25519 서명', c.ed25519 ? '지원' : '미지원' + (c.ed25519Err ? ` (${c.ed25519Err})` : ''), c.ed25519) +
     row('브라우저 저장소', c.idb ? '사용 가능' : '불가' + (c.idbErr ? ` (${c.idbErr})` : ''), c.idb) +
-    `<div class="kv"><span>브라우저</span><span style="font-size:11px">${c.ua}</span></div>`;
+    `<div class="kv"><span>브라우저</span><span style="font-size:11px">${c.ua}</span></div>` +
+    `<div class="kv"><span>얼굴 자동 찾기</span><span id="dfd">확인하려면 누르세요</span></div>`;
+  $('#dfd').style.cssText = 'cursor:pointer;text-decoration:underline';
+  $('#dfd').onclick = () => faceDiag($('#dfd'));
+}
+
+// 얼굴 탐지가 이 기기에서 실제로 도는지 잰다. 탐지가 안 된다는 신고가 있을 때
+// 원인이 모델 로드인지, 그래픽 백엔드인지, 얼굴을 못 찾은 것인지 구분해야 한다.
+async function faceDiag(out) {
+  out.textContent = '확인 중…';
+  const parts = [];
+  try {
+    const gl = document.createElement('canvas').getContext('webgl2')
+            || document.createElement('canvas').getContext('webgl');
+    parts.push(gl ? 'WebGL 있음' : 'WebGL 없음');
+    const t0 = performance.now();
+    await FD.loadDetector();
+    parts.push(`모델 ${Math.round(performance.now() - t0)}ms`);
+    const c = document.createElement('canvas');
+    c.width = c.height = 320;
+    const cx = c.getContext('2d');
+    cx.fillStyle = '#c8a088'; cx.fillRect(0, 0, 320, 320);
+    const t1 = performance.now();
+    const n = await FD.detectFaces(await createImageBitmap(c));
+    parts.push(`추론 ${Math.round(performance.now() - t1)}ms (얼굴 ${n.length}개, 이 그림엔 얼굴이 없는 게 정상)`);
+    out.className = '';
+  } catch (e) {
+    parts.push('실패: ' + (e && e.message || e));
+    out.className = 'pill bad';
+  }
+  out.textContent = parts.join(' · ');
 }
 
 async function refresh() {

@@ -44,6 +44,23 @@ Instagram 1080px, bits recovered out of 48. The right column is the quality of t
 
 Embedding costs about 40 dB PSNR (SSIM 0.96–0.998) — not perceptible.
 
+### Face masking
+
+Finds faces in the photo and irreversibly erases the ones you pick, before the
+watermark and the perceptual hash go in. Fill is the only mode — the region is
+replaced by its own quantised median colour plus a little noise, so the output
+depends on the original through three numbers and nothing else. Detection is
+never treated as final: every found face defaults to checked, and dragging on
+the photo adds or removes a box by hand.
+
+| Masking | Re-identification top-1 | Samples left |
+|---|---|---|
+| Solid (only mode) | 2.0% | 3 |
+
+Chance is 0.5% (200 candidates). It measures above chance because the
+quantised median colour is retained by design — that is the entire channel
+left open, and it is not enough to reconstruct a face.
+
 ### Privacy
 
 No server. Verified by watching sockets throughout processing: **zero non-loopback
@@ -70,6 +87,8 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 - Crop combined with colour grading can slip through.
 - A targeted attacker who knows your public key and edits the code can erase it.
 - Does not prove who was *first*. Signature timestamps are self-reported.
+- **Automatic face detection is not reliable.** It misses profile, small, and occluded
+  faces. Look at the preview before posting and paint over anything it missed.
 
 ### Two ways to run it
 
@@ -276,6 +295,30 @@ IPTC Photo Metadata 2023.1 이 PLUS 어휘를 받아들여 표준화한 항목�
 
 ---
 
+## 얼굴 가리기
+
+사진에 함께 찍힌 **다른 사람의 초상권**을 지킨다. 사진에서 얼굴을 찾아 번호를 붙이고,
+사용자가 고른 얼굴만 워터마크·지각 해시보다 **먼저** 되돌릴 수 없게 지운다.
+
+가리는 방식은 **단색 한 가지**다. 그 영역의 채널별 중앙값 색을 16단계로 양자화해 채우고
+화소당 미세한 난수를 더한다. 출력은 원본 얼굴에 **양자화된 색 세 개**를 통해서만
+의존하므로, 모자이크 제거 모델이 복원할 정보 자체가 남지 않는다 — 알고리즘의 문제가
+아니라 정보량의 문제라 증명 가능하다.
+
+| 가리기 방식 | 재식별 top-1 | 남는 표본 |
+|---|---|---|
+| 단색 (유일한 방식) | 2.0% | 3개 |
+
+우연은 200장 중 하나를 고르는 문제라 0.5%다. 그보다 높게 나오는 이유는 분명하다 —
+**양자화된 중앙값 색이 설계상 그대로 남기 때문**이다. 그것이 유일하게 열어 둔 통로이고,
+얼굴을 복원하기에는 부족한 양이다.
+
+**자동 탐지는 최종 결과가 아니다.** 찾은 얼굴은 기본으로 전부 체크되고, 사진 위를
+끌면 직접 박스를 추가·삭제할 수 있다 — 옆얼굴·작은 얼굴·가려진 얼굴은 탐지가 놓치므로
+직접 칠하는 손이 1급 기능이다.
+
+---
+
 ## 변형을 되돌리는 3단계
 
 변형마다 되돌리는 방법이 달라서, 싼 것부터 단계적으로 넓혀 간다. 앞 단계에서 확실해지면 멈춘다.
@@ -434,6 +477,8 @@ Host/Origin 검사로 막았다.
   확정 증명은 사이드카 쪽이다.
 - **시각 증명 없음.** 서명의 시각은 자기 신고다.
 - **AI 학습 자체를 막지는 못한다.** 이건 추적·귀속 도구지 차단 도구가 아니다.
+- **얼굴 자동 찾기는 완벽하지 않다.** 옆얼굴·작은 얼굴·가려진 얼굴을 놓친다.
+  미리보기를 눈으로 확인하고 놓친 얼굴은 직접 칠해야 한다.
 
 ---
 
@@ -443,16 +488,20 @@ Host/Origin 검사로 막았다.
   이식 시점에 원본과 바이트 단위로 같은 출력을 내는 것을 확인한 뒤 아래를 고쳤다.
   역 DWT 밴드 순서 버그(PSNR 33 → 43dB), uint8 랩어라운드 버그, 크롭 내성을 위한 주기 격자
   배치, 희소 칸 선택, 그리고 전수 탐색을 감당하게 하는 벡터화.
-- `watermark.py` — 키·삽입·추출·서명·지각해시·벤치마크
-- `server.py` — 로컬 웹 API (127.0.0.1 전용, Host/Origin 검사, 유휴 시 자동 종료)
+- `watermark.py` — 키·삽입·추출·서명·지각해시·벤치마크·`mask_faces()` 얼굴 가리기
+- `server.py` — 로컬 웹 API (127.0.0.1 전용, Host/Origin 검사, 유휴 시 자동 종료,
+  `/lib` 로 `site/` 를 한 번 더 서빙해 얼굴 탐지 JS 를 웹앱과 공유)
 - `static/index.html` — UI
 - `test_watermark.py` — 자체 점검. `.venv/bin/python test_watermark.py`
+- `test_face_mask.py` — 얼굴 가리기 자체 점검. `.venv/bin/python test_face_mask.py`
 - `실행.command` — 파인더에서 더블클릭하는 실행기. 첫 실행 때 준비까지 알아서 한다.
 - `site/` — **브라우저에서 도는 웹 앱** (정적 파일). Vercel 등에 그대로 올린다.
   서버로 사진을 보내지 않는다 — 계산이 전부 탭 안에서 일어나므로 "사진이 내 기기를
   벗어나지 않는다"가 그대로 유지된다.
   - `wm-core.js` 수학(DWT·DCT·최대특이삼중항) · `wm.js` 워터마크·문장·지각해시
   - `app-core.js` 키·서명·보호/검증 · `app.js` 화면 · `index.html`
+  - `face.js` 얼굴 탐지·가리기 · `face-ui.js` 선택 패널 (데스크톱과 공유)
+  - `vendor/` face-api.js 와 모델 가중치 (출처·해시는 `NOTICE` 참조)
 
 ## 웹 앱과 데스크톱 앱의 호환
 

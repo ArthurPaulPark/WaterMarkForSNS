@@ -10,8 +10,8 @@
 
 ## 무엇을 만드나
 
-사진에서 얼굴을 자동으로 찾아 번호를 붙이고, 사용자가 고른 얼굴만 모자이크한다.
-모자이크된 이미지가 기존 워터마크 파이프라인으로 흘러간다.
+사진에서 얼굴을 자동으로 찾아 번호를 붙이고, 사용자가 고른 얼굴만 가린다.
+가려진 이미지가 기존 워터마크 파이프라인으로 흘러간다.
 
 ### 범위 안
 
@@ -30,7 +30,7 @@
   `face.js` 의 박스 표현에 자리는 비워두되 만들지 않는다.
 - **대체 사진 합성** — 사용자가 보류. 나중에 생성형 AI로 저작권·초상권이
   깨끗한 인물 사진을 만들어 합성하는 방향으로 갈 예정. 지금은 얼굴 항목에
-  `mode` 필드만 두고 `'mosaic'` 한 가지만 구현한다. 그 확장이 들어올 자리다.
+  `mode` 필드만 두고 `'solid'` 한 가지만 구현한다. 그 확장이 들어올 자리다.
 - 동영상, 얼굴 외의 개인정보(번호판, 명찰, 문신)
 
 ## 기술 선택 — 브라우저 얼굴 탐지
@@ -115,9 +115,9 @@ TinyFaceDetector 는 **옆얼굴, 작은 얼굴, 가려진 얼굴을 놓친다.*
 ### 모듈 경계
 
 ```
-site/face.js          탐지 + 모자이크 (JS)
+site/face.js          탐지 + 가리기 (JS)
 site/face-ui.js       선택 패널 — DOM, 캔버스 오버레이, 드래그
-watermark.py          mask_faces()  — 모자이크 (numpy, 데스크톱용)
+watermark.py          mask_faces()  — 가리기 (numpy, 데스크톱용)
 ```
 
 `face.js` 는 DOM 을 모르고, `face-ui.js` 는 모델을 모른다.
@@ -149,7 +149,7 @@ def mask_faces(img, faces):   # img: BGR ndarray, faces: [{"x","y","w","h","mode
 데스크톱 UI 도 결국 브라우저에서 돈다. 탐지 JS 와 선택 패널을 **양쪽이 같은
 파일로 쓴다.** `server.py` 가 `site/` 를 `/lib` 로 한 번 더 서빙하면 복사본이 없다.
 
-모자이크를 실제로 칠하는 곳만 다르다:
+가리기를 실제로 칠하는 곳만 다르다:
 
 - **웹**: `protect()` 안에서 `maskFaces()` — 캔버스 위에서 바로
 - **데스크톱**: 정규화 박스를 폼 필드로 서버에 보내고 `wm.mask_faces()` 가 칠한다
@@ -310,7 +310,7 @@ watermark.py:348   "phash": perceptual_hash(_decode(image_bytes))   # 가리기 
 ### PSNR 은 가린 뒤를 기준으로
 
 `cv2.PSNR(base, marked)` 와 JS 의 `measurePsnr` 은 워터마크가 준 손상을 재는 값이다.
-가리기 전과 비교하면 모자이크 면적이 그대로 잡혀 수치가 무너진다.
+가리기 전과 비교하면 가려진 면적이 그대로 잡혀 수치가 무너진다.
 `base` 를 가린 뒤에 재야 워터마크 품질을 계속 볼 수 있다.
 
 ## 오류 처리
@@ -352,7 +352,7 @@ watermark.py:348   "phash": perceptual_hash(_decode(image_bytes))   # 가리기 
 ## 파일
 
 ```
-신규  site/face.js                      탐지 + 모자이크
+신규  site/face.js                      탐지 + 가리기
 신규  site/face-ui.js                   선택 패널
 신규  site/vendor/face-api.min.js       ~664KB, MIT
 신규  site/vendor/models/               tiny_face_detector + landmark_68_tiny ~277KB, MIT

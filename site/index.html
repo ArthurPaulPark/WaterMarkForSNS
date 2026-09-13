@@ -103,6 +103,9 @@
   </div>
 
   <div class="drop" id="pdrop">사진을 끌어다 놓거나 클릭해서 선택<input type="file" accept="image/*" hidden id="pfile"></div>
+  <div class="card hide" id="facesCard" style="margin-top:14px">
+    <div id="faces"></div>
+  </div>
   <div class="row" style="align-items:flex-start">
     <textarea id="pmsg" rows="2" placeholder="사진에 심을 문장 (선택) — 사람 눈에는 안 보입니다"></textarea>
   </div>
@@ -168,6 +171,8 @@
     <li><b>크롭과 색보정이 겹치면</b> 놓칠 수 있습니다.</li>
     <li>내 공개키를 알고 코드를 고치는 <b>표적 공격은 막지 못합니다.</b></li>
     <li><b>먼저 만들었다는 것은 증명하지 못합니다.</b> 서명의 시각은 자기 신고입니다.</li>
+    <li><b>얼굴 자동 찾기는 완벽하지 않습니다.</b> 옆얼굴·작은 얼굴·가려진 얼굴을
+      놓칩니다. 올리기 전에 눈으로 확인하고, 놓친 얼굴은 직접 칠하세요.</li>
   </ul>
 </details>
 

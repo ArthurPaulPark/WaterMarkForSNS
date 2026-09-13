@@ -1,5 +1,6 @@
 // 브라우저에서 도는 워터마크 앱의 동작부. 사진은 이 탭 밖으로 나가지 않는다.
 import * as W from './wm.js';
+import { maskFaces } from './face.js';
 
 export const PLATFORMS = {
   instagram: { label: 'Instagram', maxW: 1080, maxH: 1350, note: '피드 최대 1080px', q: 0.8 },
@@ -202,11 +203,16 @@ export function readDeclaration(jpeg) {
 }
 
 // ── 보호 ───────────────────────────────────────────────────────────
-export async function protect(file, platform, { message = '', noAi = true, keyless = false } = {}) {
+export async function protect(file, platform, { message = '', noAi = true, keyless = false,
+                                                faces = [] } = {}) {
   const spec = PLATFORMS[platform];
   const bmp = await loadImage(file);
   const { canvas, ctx, w, h } = fitCanvas(bmp, spec.maxW, spec.maxH);
   if (Math.min(w, h) < MIN_SIDE) throw new Error(`이미지가 너무 작습니다 (짧은 변 최소 ${MIN_SIDE}px)`);
+
+  // 가리기는 워터마크보다 먼저다. 순서가 반대면 가리기가 그 영역의 워터마크를 부순다.
+  // 지각 해시도 이 뒤라야 발행본과 맞고, 가려지지 않은 원본의 지문이 남지 않는다.
+  if (faces.length) maskFaces(ctx, w, h, faces);
 
   const key = keyless ? null : await loadKey();
   if (!key && !keyless) throw new Error('먼저 도장을 만들어 주세요');
@@ -230,15 +236,18 @@ export async function protect(file, platform, { message = '', noAi = true, keyle
   let jpeg = new Uint8Array(await (await toJpeg(canvas)).arrayBuffer());
   if (noAi) jpeg = addDeclaration(jpeg);
 
-  const psnr = await measurePsnr(bmp, spec, jpeg);
+  const psnr = await measurePsnr(bmp, spec, jpeg, faces);
   let sidecar = null;
   if (key) {
     const claim = {
       v: 1, alg: 'dwtDctSvd+ed25519', bits: W.NBITS, pub: key.pub, platform,
       size: [w, h], message, data_mining: noAi ? DMI_PROHIBIT_AI : null,
       phash: before,
-      sha256_original: await sha256Hex(origBytes),
+      // 얼굴을 가렸으면 원본 파일 해시를 넣지 않는다. 원본을 가진 사람이 발행본과의
+      // 연결을 증명할 수 있어, 초상권을 지키려고 가린 사진의 공개 증명서에 남길 이유가 없다.
+      sha256_original: faces.length ? null : await sha256Hex(origBytes),
       sha256_protected: await sha256Hex(jpeg),
+      faces_masked: faces.length,
       created: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
     };
     const sig = new Uint8Array(await crypto.subtle.sign({ name: 'Ed25519' }, key.priv, canonical(claim)));
@@ -247,8 +256,10 @@ export async function protect(file, platform, { message = '', noAi = true, keyle
   return { jpeg, sidecar, size: [w, h], capacity, psnr, message, noAi, keyless: !key };
 }
 
-async function measurePsnr(bmp, spec, jpeg) {
+async function measurePsnr(bmp, spec, jpeg, faces = []) {
   const a = fitCanvas(bmp, spec.maxW, spec.maxH);
+  // 가리기가 아니라 워터마크가 준 손상을 재는 값이다. 기준도 가린 뒤여야 한다.
+  if (faces.length) maskFaces(a.ctx, a.w, a.h, faces);
   const pa = getPixels(a.ctx, a.w, a.h).data;
   const bmp2 = await createImageBitmap(new Blob([jpeg], { type: 'image/jpeg' }));
   const b = fitCanvas(bmp2, 0, 0);

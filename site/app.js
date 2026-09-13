@@ -1,5 +1,6 @@
 import * as A from './app-core.js';
 import * as W from './wm.js';
+import { createFacePanel } from './face-ui.js';
 
 const $ = (s) => document.querySelector(s);
 const show = (el, on) => el.classList.toggle('hide', !on);
@@ -98,7 +99,12 @@ async function askCap() {
   } catch { CAP = null; }
   showCap();
 }
-dropzone($('#pdrop'), $('#pfile'), (f) => { pImg = f; sync(); askCap(); });
+const facePanel = createFacePanel($('#faces'));
+dropzone($('#pdrop'), $('#pfile'), async (f) => {
+  pImg = f; sync(); askCap();
+  try { await facePanel.show(await A.loadImage(f)); show($('#facesCard'), true); }
+  catch (e) { console.warn('얼굴 패널', e); }   // 패널이 죽어도 보호하기는 살아야 한다
+});
 dropzone($('#vdrop'), $('#vfile'), (f) => { vImg = f; sync(); });
 dropzone($('#sdrop'), $('#sfile'), async (f) => { try { sCar = JSON.parse(await f.text()); } catch { sCar = null; } });
 
@@ -122,6 +128,7 @@ $('#pgo').onclick = async () => {
     const r = await A.protect(pImg, $('#platform').value, {
       message: $('#pmsg').value.trim(), noAi: $('#pnoai').checked,
       keyless: $('#pkeyless').checked || !ED,
+      faces: facePanel.selected(),
     });
     const blob = new Blob([r.jpeg], { type: 'image/jpeg' });
     const url = URL.createObjectURL(blob);
@@ -134,6 +141,9 @@ $('#pgo').onclick = async () => {
       <div class="kv"><span>화질 (PSNR)</span><span>${r.psnr} dB</span></div>
       ${r.message ? `<div class="kv"><span>심어진 문장</span><span>${esc(r.message)}</span></div>` : ''}
       ${r.noAi ? `<div class="kv"><span>AI 학습 거부</span><span>선언 포함 (IPTC/PLUS)</span></div>` : ''}
+      ${r.sidecar?.claim?.faces_masked
+        ? `<div class="kv"><span>가린 얼굴</span><span>${r.sidecar.claim.faces_masked}명 — 되돌릴 수 없습니다</span></div>`
+        : ''}
       ${r.sidecar ? '' : `<p class="note" style="color:var(--warn)"><b>도장 없이 만들었습니다.</b>
         문장은 남지만 서명이 없어 원작자 증명은 되지 않습니다.</p>`}
       <div class="step"><span class="num">1</span>

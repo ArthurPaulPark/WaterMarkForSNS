@@ -30,7 +30,11 @@ export function createFacePanel(host) {
   mosaicLabel.append(mosaicBox, document.createTextNode('모자이크 — 모양만 가립니다. 복원될 수 있습니다'));
   head.append(title, status, mosaicLabel, el('div', 'flex:1'));
 
-  const stage = el('div', 'position:relative;line-height:0;user-select:none;touch-action:none');
+  // stage 는 사진에 딱 맞게 줄어들어야 한다. 블록으로 두면 컨테이너 전체 폭이 되는데,
+  // view 는 max-width 라 컨테이너보다 좁은 사진에서는 늘어나지 않는다. 그러면
+  // over(=stage 의 100%)가 사진보다 넓어져 박스가 가로로 늘어나며 밀린다 —
+  // 세로 사진을 넓은 창에서 열면 204px 어긋났다. inline-block 이면 둘이 항상 같다.
+  const stage = el('div', 'position:relative;display:inline-block;max-width:100%;line-height:0;user-select:none;touch-action:none');
   const view = el('canvas', 'max-width:100%;height:auto;border-radius:8px;cursor:crosshair');
   const over = el('canvas', 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none');
   stage.append(view, over);

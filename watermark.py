@@ -395,11 +395,13 @@ def _canon(claim: dict) -> bytes:
 # ---------------------------------------------------------------- 삽입
 
 def protect(image_bytes: bytes, platform: str, key: Ed25519PrivateKey | None = None,
-            message: str = "", overwrite: bool = False, no_ai: bool = True) -> dict:
+            message: str = "", overwrite: bool = False, no_ai: bool = True,
+            faces: list[dict] | None = None) -> dict:
     """사진에 워터마크를 심는다.
 
     key 를 주면 작성자 태그(48비트)를 심고 사이드카에 서명한다.
     key 없이 message 만 주면 문장만 심는다 — 서명이 없으므로 원작자 증명은 되지 않는다.
+    faces 를 주면 워터마크보다 먼저 그 얼굴들을 가린다 (정규화 얼굴 dict 목록).
     """
     if platform not in PLATFORMS:
         raise ValueError(f"알 수 없는 플랫폼: {platform}")
@@ -409,6 +411,12 @@ def protect(image_bytes: bytes, platform: str, key: Ed25519PrivateKey | None = N
     base = _fit(_decode(image_bytes), spec["max_w"], spec["max_h"])
     if min(base.shape[:2]) < MIN_SIDE:
         raise ValueError(f"이미지가 너무 작습니다 (짧은 변 최소 {MIN_SIDE}px)")
+
+    # 가리기는 워터마크보다 먼저다. 순서가 반대면 가리기가 그 영역의 워터마크를 부순다.
+    # 지각 해시도 이 뒤에 계산해야 발행본과 맞고, 가려지지 않은 원본의 지문이 남지 않는다.
+    n_masked = len(faces or [])
+    if faces:
+        mask_faces(base, faces)
 
     pub = pub_hex(key.public_key()) if key else None
     # 삽입은 양자화라 이전 값을 지운다. 덮어쓰기 전에 기존 워터마크를 확인한다.
@@ -468,9 +476,13 @@ def protect(image_bytes: bytes, platform: str, key: Ed25519PrivateKey | None = N
         # 문장도 서명이 덮는다. 편집으로 이미지 속 문장이 깨져도 원래 문구를 증명할 수 있다.
         "message": message,
         "data_mining": DMI_PROHIBIT_AI if no_ai else None,
-        # 원본 사진의 모양. 워터마크가 지워져도 파생 관계를 보일 수 있다.
-        "phash": perceptual_hash(_decode(image_bytes)),
-        "sha256_original": hashlib.sha256(image_bytes).hexdigest(),
+        # 발행된(가려진) 이미지의 모양. 워터마크가 지워져도 파생 관계를 보일 수 있다.
+        "phash": perceptual_hash(base),
+        # 얼굴을 가렸으면 원본 파일 해시를 넣지 않는다. 되돌릴 수는 없지만 원본을
+        # 가진 사람이 발행본과의 연결을 증명할 수 있고, 초상권을 지키려고 가린
+        # 사진의 공개 증명서에 그 고리를 남길 이유가 없다.
+        "sha256_original": None if n_masked else hashlib.sha256(image_bytes).hexdigest(),
+        "faces_masked": n_masked,
         "sha256_protected": hashlib.sha256(out).hexdigest(),
         "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }

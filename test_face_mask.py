@@ -205,7 +205,120 @@ def test_remaining_samples_are_counted():
     assert solid_samples == 3
 
 
+def test_protect_masks_before_watermark():
+    """가리기가 워터마크보다 먼저 들어가고, 워터마크는 그대로 살아남는다."""
+    import test_watermark
+
+    tmp = __import__("tempfile").mkdtemp()
+    path = __import__("pathlib").Path(tmp) / "key.pem"
+    pub = wm.generate_key(path=path)
+    key = wm.load_key(path=path)
+
+    src = test_watermark.sample_jpeg()
+    faces = [{"x": .35, "y": .30, "w": .18, "h": .24, "grow": 1.0}]
+    out = wm.protect(src, "instagram", key, faces=faces)
+
+    r = wm.check_watermark(out["image"], pub)
+    assert r["match"], f"가린 뒤에도 워터마크가 읽혀야 한다: {r}"
+    assert r["matched_bits"] == wm.NBITS, f"{r['matched_bits']}/{wm.NBITS}"
+
+
+def test_protect_signs_the_masked_image():
+    """서명되는 지각 해시가 발행된(가려진) 이미지와 맞는다.
+
+    가리기 전 원본에서 계산하면 검증이 어긋나고, 가려지지 않은 원본의 지문이
+    공개 증명서에 남는다.
+    """
+    import test_watermark
+
+    tmp = __import__("tempfile").mkdtemp()
+    path = __import__("pathlib").Path(tmp) / "key.pem"
+    wm.generate_key(path=path)
+    key = wm.load_key(path=path)
+
+    src = test_watermark.sample_jpeg()
+    faces = [{"x": .20, "y": .15, "w": .45, "h": .55, "grow": 1.0}]   # 크게 가린다
+    out = wm.protect(src, "instagram", key, faces=faces)
+
+    chk = wm.check_sidecar(out["image"], out["sidecar"])
+    assert chk["signature_valid"], "서명이 맞아야 한다"
+    assert chk["phash_verdict"] == "same", \
+        f"발행본과 서명된 해시가 어긋난다: 거리 {chk.get('phash_distance')}"
+
+
+def test_protect_does_not_leak_the_unmasked_original():
+    """얼굴을 가리면 원본 파일 해시를 공개 증명서에 넣지 않는다."""
+    import test_watermark
+
+    tmp = __import__("tempfile").mkdtemp()
+    path = __import__("pathlib").Path(tmp) / "key.pem"
+    wm.generate_key(path=path)
+    key = wm.load_key(path=path)
+    src = test_watermark.sample_jpeg()
+
+    masked = wm.protect(src, "instagram", key,
+                        faces=[{"x": .3, "y": .3, "w": .2, "h": .2, "grow": 1.0}])
+    assert masked["sidecar"]["claim"]["sha256_original"] is None, \
+        "가린 사진의 증명서에 원본 해시가 남았다"
+    assert masked["sidecar"]["claim"]["faces_masked"] == 1
+
+    plain = wm.protect(src, "instagram", key)
+    assert plain["sidecar"]["claim"]["sha256_original"] is not None, \
+        "가리지 않았으면 원본 해시는 그대로 있어야 한다"
+    assert plain["sidecar"]["claim"]["faces_masked"] == 0
+
+
+def test_psnr_measures_the_watermark_not_the_mask():
+    """PSNR 은 워터마크가 준 손상만 재야 한다.
+
+    가리기 전과 비교하면 모자이크 면적이 그대로 잡혀 수치가 무너진다.
+    """
+    import test_watermark
+
+    tmp = __import__("tempfile").mkdtemp()
+    path = __import__("pathlib").Path(tmp) / "key.pem"
+    wm.generate_key(path=path)
+    key = wm.load_key(path=path)
+    src = test_watermark.sample_jpeg()
+
+    plain = wm.protect(src, "instagram", key)
+    masked = wm.protect(src, "instagram", key,
+                        faces=[{"x": .2, "y": .2, "w": .4, "h": .4, "grow": 1.0}])
+    assert masked["psnr"] > plain["psnr"] - 3, \
+        f"가리기가 PSNR 에 섞였다: 가림 {masked['psnr']}, 안 가림 {plain['psnr']}"
+
+
+def test_no_exif_thumbnail_survives():
+    """EXIF 축소판에 가리기 전 얼굴이 남아 따라나가지 않는다.
+
+    잘라낸 사진의 EXIF 축소판에 잘리기 전 원본이 남아 있던 사고가 여러 번 있었다.
+    지금 파이프라인은 픽셀을 다시 인코딩하므로 EXIF 가 통째로 사라지지만,
+    가정하지 않고 못박는다.
+    """
+    import test_watermark
+
+    tmp = __import__("tempfile").mkdtemp()
+    path = __import__("pathlib").Path(tmp) / "key.pem"
+    wm.generate_key(path=path)
+    key = wm.load_key(path=path)
+
+    # 축소판이 든 EXIF 를 흉내 낸 APP1 세그먼트를 SOI 뒤에 끼운다
+    plain = test_watermark.sample_jpeg()
+    payload = b"Exif\x00\x00" + b"THUMBNAIL-SECRET" + b"\x00" * 64
+    seg = b"\xff\xe1" + (len(payload) + 2).to_bytes(2, "big") + payload
+    src = plain[:2] + seg + plain[2:]
+    assert b"THUMBNAIL-SECRET" in src, "시험 전제: 입력에 축소판이 있어야 한다"
+
+    out = wm.protect(src, "instagram", key,
+                     faces=[{"x": .3, "y": .3, "w": .2, "h": .2, "grow": 1.0}])["image"]
+    assert b"THUMBNAIL-SECRET" not in out, "EXIF 축소판이 출력까지 따라나갔다"
+    assert b"Exif\x00\x00" not in out, "출력에 EXIF 가 남았다"
+    # APP1 은 우리가 넣는 XMP 뿐이어야 한다
+    assert b"http://ns.adobe.com/xap/1.0/" in out, "XMP 선언은 있어야 한다"
+
+
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
+
 
 if __name__ == "__main__":
     for t in TESTS:

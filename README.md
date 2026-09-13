@@ -131,8 +131,12 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 - Crop combined with colour grading can slip through.
 - A targeted attacker who knows your public key and edits the code can erase it.
 - Does not prove who was *first*. Signature timestamps are self-reported.
-- **Automatic face detection is not reliable.** It misses profile, small, and occluded
-  faces. Look at the preview before posting and paint over anything it missed.
+- **Automatic face detection is not reliable.** Three detectors are run and their results
+  merged — TinyFaceDetector at two input sizes plus SSD MobileNet v1 — which finds 22 of 24
+  faces across a hard test set where a single pass found 19. What still fails: a face whose
+  forehead is cropped out of frame (1 of 3 found). Merging also produces the occasional
+  false positive, which is the safe direction — you can untick it, whereas a face nobody
+  found gets published. Look at the preview before posting and paint over anything missed.
 
 ### Two ways to run it
 
@@ -562,8 +566,30 @@ Host/Origin 검사로 막았다.
   확정 증명은 사이드카 쪽이다.
 - **시각 증명 없음.** 서명의 시각은 자기 신고다.
 - **AI 학습 자체를 막지는 못한다.** 이건 추적·귀속 도구지 차단 도구가 아니다.
-- **얼굴 자동 찾기는 완벽하지 않다.** 옆얼굴·작은 얼굴·가려진 얼굴을 놓친다.
-  미리보기를 눈으로 확인하고 놓친 얼굴은 직접 칠해야 한다.
+- **얼굴 자동 찾기는 완벽하지 않다.** 탐지기 셋을 돌려 결과를 합친다 — TinyFaceDetector
+  를 두 가지 입력 크기로, 그리고 SSD MobileNet v1 로. 어려운 사진 8장(정답 24명)에서
+  22명을 찾는다. 한 번만 돌리던 이전 방식은 19명이었다. 여전히 못 찾는 것: **이마가 화면
+  밖으로 잘린 얼굴**(3명 중 1명). 합치다 보니 오탐이 가끔 하나 생기는데, 이건 안전한
+  방향이다 — 오탐은 체크를 끄면 그만이지만 아무도 못 찾은 얼굴은 그대로 발행된다.
+  올리기 전에 미리보기를 눈으로 확인하고 놓친 얼굴은 직접 칠해야 한다.
+
+  측정 (어려운 사진 8장, 정답 24명):
+
+  | 경우 | 한 번만 | 셋을 합침 |
+  |---|---|---|
+  | 쉬운 정면 3명 | 3 | 3 |
+  | 입·턱 가림 | 3 | 3 |
+  | 이마가 잘림 | 1 | 1 |
+  | 화면 끝에 반쯤 걸침 | 1 | 1 |
+  | 고개 25도 기울임 | 3 | 4 (오탐 1) |
+  | 멀리 있는 작은 얼굴 | **0** | **3** |
+  | 어두운 사진 | 3 | 3 |
+  | 쉬운 5명 | 5 | 5 |
+  | **합계** | **19/24** | **22/24** |
+
+  모델을 크게 바꾸는 것만으로는 안 됐다. SSD MobileNet 하나로 갈아타도 19/24 로 같았고
+  (작은 얼굴에서 이기고 어두운 사진에서 졌다), 이기는 조합은 서로 놓치는 게 다른 셋을
+  합치는 것이었다. 대신 모델이 5.6MB 늘었다 — 얼굴 가리기를 처음 쓸 때만 받는다.
 
 ---
 

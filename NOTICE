@@ -44,3 +44,5 @@ face-api.js — 얼굴 탐지
   b98e9f2f7da76f8a6dda9741a36ed485b224b889d552de2b2c1bb16217f67bfc  site/vendor/models/face_landmark_68_tiny_model.bin
   5d1af4849ac48d5b985f4a9b16010c512353ddd6fcc63d50fd0bc9e9e64296e5  site/vendor/models/tiny_face_detector_model-weights_manifest.json
   b7503ce7df31039b1c43316a9b865cab6a70dd748cc602d3fa28b551503c3871  site/vendor/models/tiny_face_detector_model.bin
+  2835640602d53718aa6ae9a42896327eaa21beefed056c218d32ca7d79e1e2f8  site/vendor/models/ssd_mobilenetv1_model.bin
+  888f744dffbc84f5f060d1f8427d9742341943a2dfaaf9205d10029b7e7a2955  site/vendor/models/ssd_mobilenetv1_model-weights_manifest.json

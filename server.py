@@ -20,12 +20,14 @@ from pathlib import Path
 import uvicorn
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.formparsers import MultiPartParser
 
 import watermark as wm
 
 PORT = 8765
 STATIC = Path(__file__).parent / "static"
+SITE = Path(__file__).parent / "site"
 
 # 떠 있는 시간이 곧 공격 표면이므로, 쓰지 않으면 스스로 종료한다.
 # 화면은 "탭이 보이고 + 최근에 조작이 있을 때"만 살아있다고 알려온다. 탭을 닫거나
@@ -100,6 +102,11 @@ async def _read(file: UploadFile) -> bytes:
     return data
 
 
+# 데스크톱 UI 도 브라우저에서 돈다. 얼굴 탐지 JS 와 모델을 웹앱과 같은 파일로 쓴다 —
+# 복사본을 두면 한쪽만 고쳐지는 날이 온다.
+app.mount("/lib", StaticFiles(directory=SITE), name="lib")
+
+
 @app.get("/")
 def index():
     return FileResponse(STATIC / "index.html")
@@ -144,11 +151,23 @@ async def capacity(file: UploadFile, platform: str = Form(...)):
 @app.post("/api/protect")
 async def protect(file: UploadFile, platform: str = Form(...), passphrase: str = Form(""),
                   message: str = Form(""), overwrite: str = Form(""),
-                  keyless: str = Form(""), no_ai: str = Form("1")):
+                  keyless: str = Form(""), no_ai: str = Form("1"),
+                  faces: str = Form("")):
     key = None if keyless == "1" else _key(passphrase)
+    # 가리기가 실패하면 조용히 넘어가지 않는다. 가려질 줄 알았던 얼굴이 그냥
+    # 발행되는 것이 최악이라, 파싱이 안 되면 아무것도 하지 않고 거절한다.
+    try:
+        face_list = json.loads(faces) if faces.strip() else []
+        if not isinstance(face_list, list):
+            raise ValueError("배열이어야 합니다")
+        for f in face_list:
+            if not isinstance(f, dict) or not all(k in f for k in ("x", "y", "w", "h")):
+                raise ValueError("x, y, w, h 가 있어야 합니다")
+    except (ValueError, TypeError) as e:
+        raise HTTPException(400, f"얼굴 정보를 읽지 못했습니다 — 가리기를 하지 않았습니다: {e}")
     try:
         out = wm.protect(await _read(file), platform, key,
-                         message.strip(), overwrite == "1", no_ai == "1")
+                         message.strip(), overwrite == "1", no_ai == "1", face_list)
     except wm.AlreadyWatermarked as e:
         raise HTTPException(409, {"already": True, "mine": e.mine, "found": e.found,
                                   "msg": str(e)})
@@ -167,6 +186,7 @@ async def protect(file: UploadFile, platform: str = Form(...), passphrase: str =
         "capacity": out["capacity"],
         "message": message.strip(),
         "already_marked": out["already_marked"],
+        "faces_masked": len(face_list),
     }
 
 

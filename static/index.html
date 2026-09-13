@@ -109,6 +109,7 @@
     <div class="err hide" id="setupErr"></div>
   </div>
   <div class="drop" id="pdrop">사진을 끌어다 놓거나 클릭해서 선택<input type="file" accept="image/*" hidden id="pfile"></div>
+  <div class="card hide" id="facesCard" style="margin-top:14px"><div id="faces"></div></div>
   <div class="row" style="align-items:flex-start">
     <textarea id="pmsg" rows="2" placeholder="사진에 심을 문장 (선택) — 사람 눈에는 안 보입니다"
               style="font-family:inherit;font-size:13px"></textarea>
@@ -178,7 +179,8 @@
 </section>
 
 </div>
-<script>
+<script type="module">
+import { createFacePanel } from '/lib/face-ui.js';
 const $ = s => document.querySelector(s);
 let ST = {}, pImg = null, vImg = null, sCar = null, DEAD = false, SIDECAR_SAVED = false;
 
@@ -281,7 +283,13 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
 });
 
 // ── 보호 ──────────────────────────────────────────
-dropzone($('#pdrop'), $('#pfile'), f => { pImg = f; syncBtns(); askCapacity(); });
+const facePanel = createFacePanel($('#faces'));
+dropzone($('#pdrop'), $('#pfile'), f => {
+  pImg = f; syncBtns(); askCapacity();
+  createImageBitmap(f)
+    .then(b => { show($('#facesCard'), true); return facePanel.show(b); })
+    .catch(e => console.warn('얼굴 패널', e));
+});
 
 // ── 문장 ──────────────────────────────────────────
 let CAP = null;
@@ -322,6 +330,8 @@ function body(f, overwrite){
   if (overwrite) fd.append('overwrite', '1');
   if (keyless()) fd.append('keyless', '1');
   fd.append('no_ai', $('#pnoai').checked ? '1' : '0');
+  const faces = facePanel.selected();
+  if (faces.length) fd.append('faces', JSON.stringify(faces));
   return fd;
 }
 

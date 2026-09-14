@@ -106,13 +106,21 @@
   <div class="card hide" id="facesCard" style="margin-top:14px">
     <div id="faces"></div>
   </div>
-  <div class="row" style="align-items:flex-start">
-    <textarea id="pmsg" rows="2" placeholder="사진에 심을 문장 (선택) — 사람 눈에는 안 보입니다"></textarea>
-  </div>
-  <div class="row" style="margin-top:5px"><span class="sub" id="pcap">사진을 먼저 선택하면 넣을 수 있는 길이가 나옵니다</span></div>
   <div class="row">
     <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-      <input type="checkbox" id="pkeyless"> 도장 없이 문장만</label>
+      <input type="checkbox" id="pcleanonly"> 워터마크 없이 위치·시각·기종 정보(EXIF)만 지우기</label>
+  </div>
+  <div id="pwmBlock">
+    <div class="row" style="align-items:flex-start">
+      <textarea id="pmsg" rows="2" placeholder="사진에 심을 문장 (선택) — 사람 눈에는 안 보입니다"></textarea>
+    </div>
+    <div class="row" style="margin-top:5px"><span class="sub" id="pcap">사진을 먼저 선택하면 넣을 수 있는 길이가 나옵니다</span></div>
+    <div class="row">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+        <input type="checkbox" id="pkeyless"> 도장 없이 문장만</label>
+    </div>
+  </div>
+  <div class="row">
     <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
       <input type="checkbox" id="pnoai" checked> AI 학습 거부 선언</label>
   </div>

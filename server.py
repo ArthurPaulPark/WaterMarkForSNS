@@ -152,8 +152,7 @@ async def capacity(file: UploadFile, platform: str = Form(...)):
 async def protect(file: UploadFile, platform: str = Form(...), passphrase: str = Form(""),
                   message: str = Form(""), overwrite: str = Form(""),
                   keyless: str = Form(""), no_ai: str = Form("1"),
-                  faces: str = Form("")):
-    key = None if keyless == "1" else _key(passphrase)
+                  faces: str = Form(""), clean_only: str = Form("")):
     # 가리기가 실패하면 조용히 넘어가지 않는다. 가려질 줄 알았던 얼굴이 그냥
     # 발행되는 것이 최악이라, 파싱이 안 되면 아무것도 하지 않고 거절한다.
     try:
@@ -165,6 +164,25 @@ async def protect(file: UploadFile, platform: str = Form(...), passphrase: str =
                 raise ValueError("x, y, w, h 가 있어야 합니다")
     except (ValueError, TypeError) as e:
         raise HTTPException(400, f"얼굴 정보를 읽지 못했습니다 — 가리기를 하지 않았습니다: {e}")
+
+    if clean_only == "1":
+        # 워터마크·서명과 완전히 분리된 경로다 — 키가 없어도, 문장이 없어도 된다.
+        # protect() 와 달리 _key() 를 아예 부르지 않는다: 키가 없는 사용자에게
+        # "먼저 키를 만들어 주세요" 오류를 낼 이유가 없다.
+        try:
+            out = wm.strip_metadata(await _read(file), platform, no_ai == "1", face_list)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        stem = Path(file.filename or "image").stem
+        return {
+            "image_b64": base64.b64encode(out["image"]).decode(),
+            "filename": f"{stem}_clean.jpg",
+            "no_ai": no_ai == "1",
+            "size": out["size"],
+            "faces_masked": out["faces_masked"],
+        }
+
+    key = None if keyless == "1" else _key(passphrase)
     try:
         out = wm.protect(await _read(file), platform, key,
                          message.strip(), overwrite == "1", no_ai == "1", face_list)

@@ -1,5 +1,6 @@
 """assert 기반 자체 점검.  실행:  .venv/bin/python test_watermark.py"""
 import shutil
+import struct
 import tempfile
 from pathlib import Path
 
@@ -205,6 +206,50 @@ def main() -> None:
                     "sig": card["sig"]}
         assert not wm.check_sidecar(out["image"], tampered)["signature_valid"], \
             "주장을 고쳤는데 서명이 통과했다"
+
+        # --- 메타데이터 지우기: 워터마크·키·문장 없이 EXIF 만 제거 ---
+        # GPS(위치)·DateTimeOriginal(시각)·Make/Model(기종)을 담은 APP1(Exif) 세그먼트를
+        # 손으로 만들어 SOI 뒤에 끼운다. 방향(Orientation)도 6(시계방향 90도)으로 둔다 —
+        # 재인코딩이 방향을 픽셀에 구워 넣는지까지 함께 확인해야 하기 때문이다.
+        def _exif_jpeg(w, h, orientation=6):
+            base = sample_jpeg(w, h)
+            tiff = b"II" + struct.pack("<HI", 42, 8)
+            tags = [
+                (0x0112, 3, 1, orientation),          # Orientation
+                (0x010F, 2, 1, 0),                    # Make (문자열, 존재만 확인)
+                (0x0110, 2, 1, 0),                    # Model
+            ]
+            entries = b"".join(struct.pack("<HHIHH", tag, typ, cnt, val, 0) for tag, typ, cnt, val in tags)
+            ifd = struct.pack("<H", len(tags)) + entries + struct.pack("<I", 0)
+            payload = b"Exif\x00\x00" + tiff + ifd
+            seg = b"\xff\xe1" + struct.pack(">H", len(payload) + 2) + payload
+            return base[:2] + seg + base[2:]
+
+        w0, h0 = 1600, 1200
+        src = _exif_jpeg(w0, h0, orientation=6)
+        assert b"Exif\x00\x00" in src, "시험 전제: 입력에 EXIF 가 있어야 한다"
+
+        cleaned = wm.strip_metadata(src, "original")
+        assert b"Exif\x00\x00" not in cleaned["image"], "EXIF 가 그대로 남았다"
+        # Orientation=6 은 시계방향 90도 회전 지시다. cv2.imdecode 가 이미 그 방향을
+        # 픽셀에 반영해서 돌려주므로(가로 1600 x 세로 1200 → 세로 1600 x 가로 1200),
+        # 결과 크기도 그래야 한다 — 태그만 지우고 픽셀은 그대로 두면 사진이 삐뚤어진다.
+        dec = wm._decode(cleaned["image"])
+        assert (dec.shape[1], dec.shape[0]) == (h0, w0), \
+            f"회전이 픽셀에 반영되지 않았다: {dec.shape[1]}x{dec.shape[0]}"
+        assert cleaned["size"] == [h0, w0]
+
+        # 워터마크·서명·사이드카가 전혀 없어야 한다 — 이 기능은 순수 정리용이다
+        assert wm.check_watermark(cleaned["image"], pub)["matched_bits"] < wm.NBITS
+        assert wm.read_message(cleaned["image"]) is None
+
+        # AI 학습 거부 선언은 이 경로에서도 넣을 수 있다 (워터마크와 무관한 기능이라 재사용)
+        with_decl = wm.strip_metadata(src, "original", no_ai=True)
+        assert wm.read_declaration(with_decl["image"]) == wm.DMI_PROHIBIT_AI
+
+        # 플랫폼 크기 조정도 protect() 와 같은 경로를 탄다
+        resized = wm.strip_metadata(src, "youtube")
+        assert resized["size"][0] <= 1280 and resized["size"][1] <= 720
 
         # --- SNS 통과 후에도 읽히는가 (핵심) ---
         for platform in ("instagram", "x", "youtube"):

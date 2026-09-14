@@ -105,6 +105,20 @@ mosaic, lets an attacker recover the correct original essentially every time.
 **If you actually need to protect someone, use solid. Mosaic is appearance
 only.**
 
+### Metadata cleanup
+
+A checkbox on the same screen: **"Remove EXIF (location · time · device) without a
+watermark."** No key, no message, nothing to prove — just a photo in, a clean photo
+out. It exists because embedding a watermark already strips every EXIF tag as a
+side effect of re-encoding, but until now there was no way to get that side effect
+without also agreeing to the watermark's key/message requirement.
+
+The photo is decoded and redrawn to a canvas, then re-encoded — the same pipeline
+`protect()` uses, so GPS coordinates, capture time, camera make and model disappear
+for the same reason, and orientation is baked into the pixels first so a portrait
+photo doesn't come out sideways. Face masking and the AI-training-refusal
+declaration both work in this mode too, since neither depends on the watermark.
+
 ### Privacy
 
 No server. Verified by watching sockets throughout processing: **zero non-loopback
@@ -405,6 +419,20 @@ IPTC Photo Metadata 2023.1 이 PLUS 어휘를 받아들여 표준화한 항목�
 **자동 탐지는 최종 결과가 아니다.** 찾은 얼굴은 기본으로 전부 체크되고, 사진 위를
 끌면 직접 박스를 추가·삭제할 수 있다 — 옆얼굴·작은 얼굴·가려진 얼굴은 탐지가 놓치므로
 직접 칠하는 손이 1급 기능이다.
+
+## 메타데이터 지우기
+
+같은 화면의 체크박스 하나: **"워터마크 없이 위치·시각·기종 정보(EXIF)만 지우기."**
+키도 문장도 필요 없다 — 증명할 게 없으니까. 사진을 넣으면 정리된 사진이 나온다.
+
+워터마크를 심을 때도 재인코딩의 부산물로 EXIF가 이미 전부 사라지는데, 그동안은
+그 부산물만 얻으려 해도 워터마크의 키·문장 요구를 함께 받아들여야 했다. 이 체크박스는
+그 요구를 떼어낸 것뿐이다.
+
+사진을 디코드해서 캔버스에 다시 그리고 재인코딩한다 — `protect()`가 쓰는 경로와
+같다. 그래서 GPS 좌표·촬영 시각·기종이 같은 이유로 사라지고, 방향(Orientation)도
+먼저 픽셀에 구워 넣어 세로 사진이 옆으로 눕지 않는다. 얼굴 가리기와 AI 학습 거부
+선언 둘 다 이 모드에서도 쓸 수 있다 — 둘 다 워터마크에 기대지 않는 기능이라서다.
 
 ---
 

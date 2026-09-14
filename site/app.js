@@ -104,7 +104,8 @@ const msgBytes = () => new TextEncoder().encode($('#pmsg').value.trim()).length;
 function sync() {
   const kl = $('#pkeyless').checked || !ED;
   const tooLong = CAP !== null && msgBytes() > CAP;
-  $('#pgo').disabled = !pImg || tooLong || facesBusy || (kl ? msgBytes() === 0 : !KEY);
+  const cleanOnly = $('#pcleanonly').checked;
+  $('#pgo').disabled = !pImg || facesBusy || (cleanOnly ? false : tooLong || (kl ? msgBytes() === 0 : !KEY));
   $('#vgo').disabled = !vImg;
 }
 function showCap() {
@@ -117,6 +118,12 @@ function showCap() {
 }
 $('#pmsg').oninput = showCap;
 $('#pkeyless').onchange = sync;
+$('#pcleanonly').onchange = () => {
+  const on = $('#pcleanonly').checked;
+  show($('#pwmBlock'), !on);
+  $('#pgo').textContent = on ? '지우기' : '보호하기';
+  sync();
+};
 $('#platform').onchange = () => askCap();
 
 async function askCap() {
@@ -156,49 +163,71 @@ $('#setupGo').onclick = async () => {
 };
 $('#setupSkip').onclick = () => { $('#pkeyless').checked = true; show($('#setup'), false); sync(); };
 
-// ── 보호 ───────────────────────────────────────────────────────────
+// ── 보호 (정리 모드일 땐 워터마크·문장 없이 메타데이터만) ────────────
 $('#pgo').onclick = async () => {
   err($('#perr'), ''); busy($('#pbar'), $('#pgo'), true, '처리 중…');
+  const cleanOnly = $('#pcleanonly').checked;
   try {
-    const r = await A.protect(pImg, $('#platform').value, {
-      message: $('#pmsg').value.trim(), noAi: $('#pnoai').checked,
-      keyless: $('#pkeyless').checked || !ED,
-      faces: facePanel.selected(),
-    });
+    const r = cleanOnly
+      ? await A.stripMetadata(pImg, $('#platform').value, {
+          noAi: $('#pnoai').checked, faces: facePanel.selected(),
+        })
+      : await A.protect(pImg, $('#platform').value, {
+          message: $('#pmsg').value.trim(), noAi: $('#pnoai').checked,
+          keyless: $('#pkeyless').checked || !ED,
+          faces: facePanel.selected(),
+        });
     const blob = new Blob([r.jpeg], { type: 'image/jpeg' });
     const url = URL.createObjectURL(blob);
     const stem = pImg.name.replace(/\.[^.]+$/, '');
-    const name = `${stem}_${$('#platform').value}_protected.jpg`;
-    $('#pres').innerHTML = `
-      <h3>완료 — 육안으로는 구별되지 않습니다</h3>
-      <img class="prev" src="${url}">
-      <div class="kv"><span>해상도</span><span>${r.size[0]} × ${r.size[1]}</span></div>
-      <div class="kv"><span>화질 (PSNR)</span><span>${r.psnr} dB</span></div>
-      ${r.message ? `<div class="kv"><span>심어진 문장</span><span>${esc(r.message)}</span></div>` : ''}
-      ${r.noAi ? `<div class="kv"><span>AI 학습 거부</span><span>선언 포함 (IPTC/PLUS)</span></div>` : ''}
-      ${r.sidecar?.claim?.faces_masked
-        ? `<div class="kv"><span>가린 얼굴</span><span>${r.sidecar.claim.faces_masked}명 — 되돌릴 수 없습니다</span></div>`
-        : ''}
-      ${r.sidecar ? '' : `<p class="note" style="color:var(--warn)"><b>도장 없이 만들었습니다.</b>
-        문장은 남지만 서명이 없어 원작자 증명은 되지 않습니다.</p>`}
-      <div class="step"><span class="num">1</span>
-        <div><b>워터마크가 심긴 이미지</b><span class="sub">SNS에 올릴 파일</span></div>
-        <button id="dimg">내려받기</button></div>
-      ${r.sidecar ? `<div class="step"><span class="num">2</span>
-        <div><b>사이드카 (.sig.json)</b><span class="sub">공개하지 마세요. 원작자 증명의 핵심</span></div>
-        <span class="pill bad" id="scw">아직 안 받음</span><button id="dsc">내려받기</button></div>
-      <div class="step"><span class="num">3</span>
-        <div><b>원본 파일 보관</b><span class="sub">방금 올린 그 파일. 다시 저장하면 증명에 못 씁니다</span></div>
-        <span class="pill warn">직접 보관</span></div>` : ''}`;
-    show($('#pres'), true);
-    $('#dimg').onclick = () => dl(blob, name);
-    if (r.sidecar) $('#dsc').onclick = () => {
-      dl(new Blob([JSON.stringify(r.sidecar, null, 2)], { type: 'application/json' }), name + '.sig.json');
-      $('#scw').className = 'pill ok'; $('#scw').textContent = '받음';
-    };
+    const name = cleanOnly
+      ? `${stem}_clean.jpg`
+      : `${stem}_${$('#platform').value}_protected.jpg`;
+
+    if (cleanOnly) {
+      $('#pres').innerHTML = `
+        <h3>완료 — 위치·시각·기종 정보가 사라졌습니다</h3>
+        <img class="prev" src="${url}">
+        <div class="kv"><span>해상도</span><span>${r.size[0]} × ${r.size[1]}</span></div>
+        ${r.noAi ? `<div class="kv"><span>AI 학습 거부</span><span>선언 포함 (IPTC/PLUS)</span></div>` : ''}
+        ${r.facesMasked ? `<div class="kv"><span>가린 얼굴</span><span>${r.facesMasked}명 — 되돌릴 수 없습니다</span></div>` : ''}
+        <p class="note" style="margin-top:0">워터마크는 심지 않았습니다 — 원작자 증명은 되지 않습니다.</p>
+        <div class="row"><button id="dimg">내려받기</button></div>`;
+      show($('#pres'), true);
+      $('#dimg').onclick = () => dl(blob, name);
+    } else {
+      $('#pres').innerHTML = `
+        <h3>완료 — 육안으로는 구별되지 않습니다</h3>
+        <img class="prev" src="${url}">
+        <div class="kv"><span>해상도</span><span>${r.size[0]} × ${r.size[1]}</span></div>
+        <div class="kv"><span>화질 (PSNR)</span><span>${r.psnr} dB</span></div>
+        ${r.message ? `<div class="kv"><span>심어진 문장</span><span>${esc(r.message)}</span></div>` : ''}
+        ${r.noAi ? `<div class="kv"><span>AI 학습 거부</span><span>선언 포함 (IPTC/PLUS)</span></div>` : ''}
+        ${r.sidecar?.claim?.faces_masked
+          ? `<div class="kv"><span>가린 얼굴</span><span>${r.sidecar.claim.faces_masked}명 — 되돌릴 수 없습니다</span></div>`
+          : ''}
+        ${r.sidecar ? '' : `<p class="note" style="color:var(--warn)"><b>도장 없이 만들었습니다.</b>
+          문장은 남지만 서명이 없어 원작자 증명은 되지 않습니다.</p>`}
+        <div class="step"><span class="num">1</span>
+          <div><b>워터마크가 심긴 이미지</b><span class="sub">SNS에 올릴 파일</span></div>
+          <button id="dimg">내려받기</button></div>
+        ${r.sidecar ? `<div class="step"><span class="num">2</span>
+          <div><b>사이드카 (.sig.json)</b><span class="sub">공개하지 마세요. 원작자 증명의 핵심</span></div>
+          <span class="pill bad" id="scw">아직 안 받음</span><button id="dsc">내려받기</button></div>
+        <div class="step"><span class="num">3</span>
+          <div><b>원본 파일 보관</b><span class="sub">방금 올린 그 파일. 다시 저장하면 증명에 못 씁니다</span></div>
+          <span class="pill warn">직접 보관</span></div>` : ''}`;
+      show($('#pres'), true);
+      $('#dimg').onclick = () => dl(blob, name);
+      if (r.sidecar) $('#dsc').onclick = () => {
+        dl(new Blob([JSON.stringify(r.sidecar, null, 2)], { type: 'application/json' }), name + '.sig.json');
+        $('#scw').className = 'pill ok'; $('#scw').textContent = '받음';
+      };
+    }
   } catch (e) { err($('#perr'), e.message); }
-  busy($('#pbar'), $('#pgo'), false, '보호하기'); sync();
+  busy($('#pbar'), $('#pgo'), false, cleanOnly ? '지우기' : '보호하기'); sync();
 };
+
 
 // ── 검증 ───────────────────────────────────────────────────────────
 $('#vgo').onclick = async () => {

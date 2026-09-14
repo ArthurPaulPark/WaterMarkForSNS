@@ -263,6 +263,20 @@ export async function protect(file, platform, { message = '', noAi = true, keyle
   return { jpeg, sidecar, size: [w, h], capacity, psnr, message, noAi, keyless: !key };
 }
 
+export async function stripMetadata(file, platform, { noAi = false, faces = [] } = {}) {
+  const spec = PLATFORMS[platform];
+  const bmp = await loadImage(file);
+  const { canvas, ctx, w, h } = fitCanvas(bmp, spec.maxW, spec.maxH);
+  if (Math.min(w, h) < MIN_SIDE) throw new Error(`이미지가 너무 작습니다 (짧은 변 최소 ${MIN_SIDE}px)`);
+  // 워터마크·해시가 없으니 순서를 신경 쓸 게 없다 — 가리고 나서 바로 다시 그려 인코딩한다.
+  const appliedFaces = [];
+  if (faces.length) maskFaces(ctx, w, h, faces, appliedFaces);
+  let jpeg = new Uint8Array(await (await toJpeg(canvas)).arrayBuffer());
+  if (noAi) jpeg = addDeclaration(jpeg);
+  return { jpeg, size: [w, h], facesMasked: appliedFaces.length, noAi };
+}
+
+
 async function measurePsnr(basePixels, jpeg) {
   // 가리기가 아니라 워터마크가 준 손상만 재는 값이다. basePixels 는 가리기까지
   // 끝난 뒤(워터마크 삽입 전) 픽셀이므로 다시 가릴 필요도, 새 잡음을 뽑을 필요도 없다.

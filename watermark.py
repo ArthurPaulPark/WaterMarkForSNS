@@ -563,6 +563,35 @@ def protect(image_bytes: bytes, platform: str, key: Ed25519PrivateKey | None = N
     }
 
 
+def strip_metadata(image_bytes: bytes, platform: str = "original", no_ai: bool = False,
+                    faces: list[dict] | None = None) -> dict:
+    """EXIF(위치·촬영 시각·기종 정보)를 지운다. 워터마크·서명은 심지 않는다.
+
+    protect() 와 같은 경로(재인코딩)를 그대로 쓴다 — cv2.imdecode 가 방향(Orientation)
+    정보를 픽셀에 구워 넣고 cv2.imencode 는 그 픽셀만 다시 쓰므로, GPS·촬영 시각·기종
+    같은 EXIF 태그가 부산물로 전부 사라진다. 새 파서를 만들 필요가 없다.
+
+    faces 를 주면 워터마크와 마찬가지로 재인코딩 전에 그 얼굴들을 가린다. 서명이나
+    해시가 없는 경로라 순서를 신경 쓸 게 없다 — 그냥 가리고 나서 바로 인코딩한다.
+    """
+    if platform not in PLATFORMS:
+        raise ValueError(f"알 수 없는 플랫폼: {platform}")
+    spec = PLATFORMS[platform]
+    img = _fit(_decode(image_bytes), spec["max_w"], spec["max_h"])
+    if min(img.shape[:2]) < MIN_SIDE:
+        raise ValueError(f"이미지가 너무 작습니다 (짧은 변 최소 {MIN_SIDE}px)")
+    applied_faces: list = []
+    if faces:
+        mask_faces(img, faces, applied=applied_faces)
+    ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, JPEG_Q])
+    if not ok:
+        raise RuntimeError("JPEG 인코딩 실패")
+    out = buf.tobytes()
+    if no_ai:
+        out = add_declaration(out)
+    return {"image": out, "size": [int(img.shape[1]), int(img.shape[0])],
+            "faces_masked": len(applied_faces)}
+
 # ---------------------------------------------------------------- 검증
 
 def _regain(img: np.ndarray, alpha: float, beta: float) -> np.ndarray:

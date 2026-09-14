@@ -14,3 +14,6 @@ __pycache__/
 # 보호 결과물
 *_protected.jpg
 *_protected.png
+
+# 클로드 코드 개발 도구 설정 — 공개 저장소에 있을 이유 없음
+.claude/
